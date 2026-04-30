@@ -94,6 +94,7 @@ document.getElementById('ui-overlay')!.appendChild(entityPopup);
 legendPanel = document.createElement('div');
 legendPanel.id = 'legend-panel';
 legendPanel.innerHTML = `
+  <div class="legend-close" id="legend-close">✕</div>
   <div class="legend-item"><span class="legend-icon legend-civ"></span> Civilian (blue)</div>
   <div class="legend-item"><span class="legend-icon legend-zom"></span> Zombie (green)</div>
   <div class="legend-item"><span class="legend-icon legend-mil"></span> Military (red)</div>
