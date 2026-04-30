@@ -22,6 +22,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+
       - name: Run TypeScript type check
         run: npx tsc --noEmit
 
@@ -40,7 +43,7 @@ jobs:
         if: always()
         run: |
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
-          npx vitest run --reporter=json 2>/dev/null | head -200 >> $GITHUB_STEP_SUMMARY || echo "Tests completed" >> $GITHUB_STEP_SUMMARY
+          npx vitest run --reporter=verbose 2>&1 | grep -E "Tests |Test Files|✓|×" | tail -20 >> $GITHUB_STEP_SUMMARY || echo "Tests completed" >> $GITHUB_STEP_SUMMARY
 
   build-and-deploy:
     needs: test

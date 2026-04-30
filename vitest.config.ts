@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     testTimeout: 60000,
     include: ['src/__tests__/*.test.ts'],
-    exclude: ['src/__tests__/mobile.test.ts'],
+    exclude: [],
     env: {
       PLAYWRIGHT_BROWSERS_PATH: '/home/openclaw/.cache/ms-playwright',
     },
