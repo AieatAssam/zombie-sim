@@ -561,17 +561,17 @@ export class Simulation {
 
   // ─── CIVILIAN AI ───
   private updateCivilian(e: Entity, dt: number, isNight: boolean): void {
-    e.hunger -= 0.5 * dt;
+    e.hunger -= 0.7 * dt;
     e.fatigue += 0.15 * dt;
 
     // Check if starving
-    if (e.hunger < 15 && e.state !== 'starving' && e.state !== 'dead') {
+    if (e.hunger < 25 && e.state !== 'starving' && e.state !== 'dead') {
       e.state = 'starving';
     }
 
     // Starvation
-    if (e.hunger <= -20) {
-      e.hp -= 6 * dt;
+    if (e.hunger <= -10) {
+      e.hp -= 8 * dt;
       if (e.hp <= 0) {
         e.state = 'dead';
         this.state.stats.civiliansStarved++;
@@ -742,7 +742,7 @@ export class Simulation {
           if (found > 0) {
             foodB.food -= found;
             e.hunger = Math.min(80, e.hunger + found);
-            if (e.hunger > 30) e.state = 'wandering'; // No longer starving
+            if (e.hunger > 40) e.state = 'wandering'; // No longer starving
           }
           e.wanderTimer = 1;
           e.vx *= 0.8; e.vz *= 0.8;
@@ -778,9 +778,9 @@ export class Simulation {
             e.wanderAngle = Math.random() * Math.PI * 2;
             e.wanderTimer = 1 + Math.random() * 2;
           }
-          const spd = e.speed * 0.5; // Slower when starving
-          e.vx += Math.cos(e.wanderAngle) * spd * dt * 0.3;
-          e.vz += Math.sin(e.wanderAngle) * spd * dt * 0.3;
+          const spd = e.speed * 1.4; // DESPERATE: faster, takes risks
+          e.vx += Math.cos(e.wanderAngle) * spd * dt * 0.5;
+          e.vz += Math.sin(e.wanderAngle) * spd * dt * 0.5;
         }
         break;
       }
@@ -816,7 +816,7 @@ export class Simulation {
         e.wanderTimer -= dt;
 
         // If hungry, seek food
-        if (e.hunger < 35) {
+        if (e.hunger < 45) {
           const foodB = this.findNearestFoodBuilding(e.x, e.z);
           if (foodB && foodB.food > 0) {
             const dx = foodB.x - e.x;
@@ -825,7 +825,7 @@ export class Simulation {
 
             // Only forage if hungry AND zombie check is safe enough
             const nearZomb = this.findNearest(e, 12, 'zombie');
-            const safeToForage = !nearZomb || dist(e, nearZomb) > 8;
+            const safeToForage = !nearZomb || dist(e, nearZomb) > 5;
 
             if (safeToForage) {
               e.wanderAngle = Math.atan2(dz, dx);
