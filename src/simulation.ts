@@ -873,7 +873,9 @@ export class Simulation {
           e.hunger = 80;
           e.state = 'wandering'; // No longer starving
           this.logEventThrottled(`Civilian #${e.id} found food and is no longer starving.`, 'info', 5);
-          e.wanderTimer = 1;
+          e.buildingId = null;
+          e.wanderAngle = Math.random() * Math.PI * 2;
+          e.forageTimer = 8 + Math.random() * 4; // 8-12s cooldown
           e.vx *= 0.8; e.vz *= 0.8;
         } else if (foodB) {
           // Move toward food, but avoid nearby zombies (within 4 units)
@@ -934,8 +936,11 @@ export class Simulation {
               e.hunger = Math.min(100, e.hunger + found);
             }
           }
+          // Leave food building — wander away, can't re-forage immediately
           e.state = 'wandering';
           e.buildingId = null;
+          e.wanderAngle = Math.random() * Math.PI * 2;
+          e.forageTimer = 5 + Math.random() * 3; // 5-8s cooldown before can forage again
         }
         break;
       }
