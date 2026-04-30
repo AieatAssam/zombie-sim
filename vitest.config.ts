@@ -6,13 +6,13 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/*.ts'],
-      exclude: ['src/__tests__/**'],
+      exclude: ['src/__tests__/**', 'src/renderer.ts', 'src/main.ts'],
       reporter: ['text', 'lcov', 'html'],
       thresholds: {
-        lines: 50,
-        functions: 50,
-        branches: 30,
-        statements: 50,
+        lines: 75,
+        functions: 75,
+        branches: 70,
+        statements: 75,
       },
     },
   },
