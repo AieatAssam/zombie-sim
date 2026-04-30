@@ -94,7 +94,7 @@ export class Renderer3D {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.2;
+    this.renderer.toneMappingExposure = 2.0;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -102,7 +102,7 @@ export class Renderer3D {
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 200);
-    this.camera.position.set(40, 35, 40);
+    this.camera.position.set(38, 30, 38);
     this.camera.lookAt(0, 0, 0);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -120,9 +120,9 @@ export class Renderer3D {
 
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(container.clientWidth, container.clientHeight),
-      0.3,   // strength — subtle bloom for atmosphere
-      0.5,   // radius
-      0.1    // threshold
+      0.5,   // strength — moderate bloom for zombie glow
+      0.4,   // radius
+      0.05   // threshold — lower to catch more glow
     );
     this.composer.addPass(bloomPass);
 
@@ -130,8 +130,17 @@ export class Renderer3D {
     this.hemisphere = new THREE.HemisphereLight(0x87CEEB, 0x3a2a1a, 0.6);
     this.scene.add(this.hemisphere);
 
-    this.ambient = new THREE.AmbientLight(0x404060, 0.4);
+    this.ambient = new THREE.AmbientLight(0x404060, 0.6);
     this.scene.add(this.ambient);
+
+    // ─── Fill light from below for drama ───
+    const fillLight = new THREE.DirectionalLight(0x446688, 0.3);
+    fillLight.position.set(-20, 10, -30);
+    this.scene.add(fillLight);
+
+    const rimLight = new THREE.DirectionalLight(0x8866aa, 0.2);
+    rimLight.position.set(-20, 5, 30);
+    this.scene.add(rimLight);
 
     this.directional = new THREE.DirectionalLight(0xffeedd, 1.5);
     this.directional.position.set(30, 50, 20);
@@ -599,7 +608,7 @@ export class Renderer3D {
     dayFactor = Math.max(0, Math.min(1, dayFactor));
 
     // ─── Night overlay ───
-    (this.nightOverlay.material as THREE.MeshBasicMaterial).opacity = (1 - dayFactor) * 0.7;
+    (this.nightOverlay.material as THREE.MeshBasicMaterial).opacity = (1 - dayFactor) * 0.5;
 
     // ─── Stars visibility ───
     (this.stars.material as THREE.PointsMaterial).opacity = (1 - dayFactor) * 0.8;
@@ -636,12 +645,12 @@ export class Renderer3D {
     (this.sky.material as THREE.MeshBasicMaterial).color.lerp(skyColor, 0.05);
 
     // ─── Ambient ───
-    this.ambient.intensity = (0.15 + dayFactor * 0.5) * 0.6;
+    this.ambient.intensity = 0.3 + dayFactor * 0.5;
 
     // ─── Sun movement ───
     const sunAngle = time * Math.PI * 2;
     this.directional.position.set(Math.cos(sunAngle) * 50, 20 + Math.sin(sunAngle) * 25, Math.sin(sunAngle) * 40);
-    this.directional.intensity = dayFactor * 1.5 + 0.2;
+    this.directional.intensity = dayFactor * 2.0 + 0.3;
 
     // ─── Fog — more dramatic at night ───
     const fogDensity = 0.008 + (1 - dayFactor) * 0.025 + (state.stats.zombies > 100 ? 0.005 : 0);
@@ -802,10 +811,10 @@ export class Renderer3D {
       // Cylinder body with sphere head
       const bodyMat = new THREE.MeshStandardMaterial({
         color: col,
-        roughness: 0.4,
-        metalness: 0.05,
+        roughness: 0.3,
+        metalness: 0.1,
         emissive: col,
-        emissiveIntensity: 0.05,
+        emissiveIntensity: 0.15,
       });
       const body = new THREE.Mesh(this.civilianGeom, bodyMat);
       body.position.y = 0.25;
@@ -826,10 +835,10 @@ export class Renderer3D {
       // Low-poly cone body with high emissive for bloom
       const bodyMat = new THREE.MeshStandardMaterial({
         color: col,
-        roughness: 0.6,
-        metalness: 0.0,
+        roughness: 0.3,
+        metalness: 0.2,
         emissive: new THREE.Color(0x44ff44),
-        emissiveIntensity: 1.0, // High for bloom
+        emissiveIntensity: 1.5, // Higher for dramatic bloom glow
       });
       const body = new THREE.Mesh(this.zombieGeom, bodyMat);
       body.position.y = 0.28;
