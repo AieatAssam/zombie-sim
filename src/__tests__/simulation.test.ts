@@ -198,11 +198,11 @@ describe('Simulation', () => {
   });
 
   describe('Game Over Conditions', () => {
-    it('should detect when all humans are dead or turned', () => {
+    it('should detect when all civilians are lost', () => {
       // Verify the game over logic condition works correctly
       const state = sim.state;
       state.stats.civilians = 0;
-      state.stats.military = 0;
+      state.stats.military = 5;
       state.stats.zombies = 5;
       
       // Manually trigger game over (simulating what tick() would do)
@@ -210,13 +210,13 @@ describe('Simulation', () => {
       const mil = state.stats.military;
       const zomb = state.stats.zombies;
       
-      if (civ <= 0 && mil <= 0 && zomb > 0) {
+      if (civ <= 0 && zomb > 0) {
         state.gameOver = true;
-        state.gameOverReason = '💀 HUMANS EXTINCT. ZOMBIES WIN.';
+        state.gameOverReason = '💀 ALL CIVILIANS LOST. ZOMBIES WIN.';
       }
       
       expect(state.gameOver).toBe(true);
-      expect(state.gameOverReason).toContain('EXTINCT');
+      expect(state.gameOverReason).toContain('LOST');
     });
 
     it('should detect when all zombies are eliminated', () => {
@@ -225,14 +225,12 @@ describe('Simulation', () => {
       state.stats.civilians = 10;
       state.day = 5;
       
-      // Manually trigger game over (simulating what tick() would do)
       const civ2 = state.stats.civilians;
-      const mil2 = state.stats.military;
       const zomb2 = state.stats.zombies;
       
-      if (zomb2 <= 0 && state.day > 2) {
+      if (zomb2 <= 0 && civ2 > 0 && state.day > 2) {
         state.gameOver = true;
-        state.gameOverReason = '🎉 CITY SAVED! ZOMBIES ELIMINATED.';
+        state.gameOverReason = '🎉 CITY SAVED! CIVILIANS PROTECTED.';
       }
       
       expect(state.gameOver).toBe(true);

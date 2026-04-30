@@ -395,18 +395,20 @@ export class Simulation {
     }
 
     // ─── Game over checks ───
-    if (civ <= 0 && mil <= 0 && zomb > 0) {
+    // Loss: all civilians dead or turned. Military surviving doesn't count.
+    // Win: zombies eliminated AND at least some civilians survive.
+    if (civ <= 0 && zomb > 0) {
       s.gameOver = true;
-      s.gameOverReason = '💀 HUMANS EXTINCT. ZOMBIES WIN.';
-      this.logEvent('☠️ GAME OVER — All humans infected or dead.', 'death');
-    } else if (zomb <= 0 && s.day > 2) {
+      s.gameOverReason = '💀 ALL CIVILIANS LOST. ZOMBIES WIN.';
+      this.logEvent('☠️ GAME OVER — All civilians dead or turned. Zombies win.', 'death');
+    } else if (civ <= 0 && zomb <= 0) {
       s.gameOver = true;
-      s.gameOverReason = '🎉 CITY SAVED! ZOMBIES ELIMINATED.';
-      this.logEvent('✅ GAME OVER — Zombies have been eliminated!', 'info');
-    } else if (humanPop <= 0) {
+      s.gameOverReason = '💀 NO CIVILIANS SURVIVED.';
+      this.logEvent('☠️ GAME OVER — No civilians remain.', 'death');
+    } else if (zomb <= 0 && civ > 0 && s.day > 2) {
       s.gameOver = true;
-      s.gameOverReason = '💀 NO SURVIVORS REMAIN.';
-      this.logEvent('☠️ GAME OVER — No survivors.', 'death');
+      s.gameOverReason = '🎉 CITY SAVED! CIVILIANS PROTECTED.';
+      this.logEvent('✅ GAME OVER — Zombies eliminated! Civilians survive.', 'info');
     }
   }
 
@@ -552,17 +554,17 @@ export class Simulation {
     let targetSoldiers = 0;
 
     if (totalThreat >= 2) targetSoldiers = 1;
-    if (totalThreat >= 10) targetSoldiers = 2;
-    if (totalThreat >= 20) targetSoldiers = 3;
-    if (totalThreat >= 40) targetSoldiers = 5;
-    if (totalThreat >= 70) targetSoldiers = 7;
-    if (totalThreat >= 110) targetSoldiers = 10;
-    if (totalThreat >= 160) targetSoldiers = 13;
-    if (totalThreat >= 230) targetSoldiers = 16;
-    if (totalThreat >= 300) targetSoldiers = 20;
+    if (totalThreat >= 15) targetSoldiers = 2;
+    if (totalThreat >= 35) targetSoldiers = 3;
+    if (totalThreat >= 60) targetSoldiers = 4;
+    if (totalThreat >= 100) targetSoldiers = 6;
+    if (totalThreat >= 150) targetSoldiers = 8;
+    if (totalThreat >= 210) targetSoldiers = 11;
+    if (totalThreat >= 280) targetSoldiers = 14;
+    if (totalThreat >= 360) targetSoldiers = 18;
 
-    // Cap soldiers so zombies still have a chance
-    targetSoldiers = Math.min(targetSoldiers, Math.floor(zombieThreat * 0.5 + 2));
+    // Cap soldiers so zombies always have numerical advantage
+    targetSoldiers = Math.min(targetSoldiers, Math.floor(zombieThreat * 0.4 + 1));
 
     // Deploy in waves - don't spawn all at once
     const currentMil = s.stats.military;
