@@ -4,7 +4,7 @@
 
 Watch a city of 400 civilians get overrun by zombies — or rally with military reinforcements and save humanity. Every run is unique thanks to procedural city generation and emergent AI behavior.
 
-![Zombie Outbreak Simulator](screenshot-v3-final.png)
+![Zombie Outbreak Simulator](screenshot-v5.png)
 
 ## 🎮 Features
 
