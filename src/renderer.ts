@@ -46,8 +46,6 @@ export class Renderer3D {
 
   // Sky / atmosphere
   private sky: THREE.Mesh;
-  private stars: THREE.Points;
-  private starPositions: Float32Array;
   private moon: THREE.Mesh;
 
   // Ground
@@ -176,30 +174,6 @@ export class Renderer3D {
     });
     this.sky = new THREE.Mesh(skyGeom, skyMat);
     this.scene.add(this.sky);
-
-    // ─── Stars ───
-    const starGeom = new THREE.BufferGeometry();
-    this.starPositions = new Float32Array(3000 * 3);
-    const starSizes = new Float32Array(3000);
-    for (let i = 0; i < 3000; i++) {
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      const r = 85 + Math.random() * 5;
-      this.starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-      this.starPositions[i * 3 + 1] = Math.abs(r * Math.cos(phi));
-      this.starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
-      starSizes[i] = 0.1 + Math.random() * 0.4;
-    }
-    starGeom.setAttribute('position', new THREE.BufferAttribute(this.starPositions, 3));
-    starGeom.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
-    this.stars = new THREE.Points(starGeom, new THREE.PointsMaterial({
-      color: 0xffffff,
-      size: 0.3,
-      transparent: true,
-      opacity: 0,
-      sizeAttenuation: true,
-    }));
-    this.scene.add(this.stars);
 
     // ─── Moon ───
     const moonGeom = new THREE.CircleGeometry(1.5, 16);
@@ -834,13 +808,10 @@ export class Renderer3D {
     // Use a smooth sine wave for lighting: peak at time 0.25, trough at 0.75
     const sunAngle2 = (time - 0.25) * Math.PI * 2;
     dayFactor = (Math.cos(sunAngle2) + 1) * 0.5; // 0 at night, 1 at noon
-    dayFactor = Math.max(0.05, Math.min(1, dayFactor)); // Never fully dark
+    dayFactor = Math.max(0.15, Math.min(1, dayFactor)); // Night is dim but visible
 
     // ─── Night overlay ───
-    (this.nightOverlay.material as THREE.MeshBasicMaterial).opacity = (1 - dayFactor) * 0.4;
-
-    // ─── Stars visibility ───
-    (this.stars.material as THREE.PointsMaterial).opacity = (1 - dayFactor) * 0.8;
+    (this.nightOverlay.material as THREE.MeshBasicMaterial).opacity = (1 - dayFactor) * 0.15;
 
     // ─── Moon visibility ───
     this.moon.visible = isNight && dayFactor < 0.4;
@@ -879,17 +850,17 @@ export class Renderer3D {
     // When camera is high (zoomed out), boost ambient so city stays visible
     const camHeight = this.camera.position.length();
     const heightBoost = Math.max(0, (camHeight - 20) / 60); // 0 at 20 units, 1 at 80 units
-    this.ambient.intensity = 0.3 + dayFactor * 0.5 + heightBoost * 0.6;
+    this.ambient.intensity = 0.5 + dayFactor * 0.4 + heightBoost * 0.5;
 
     // ─── Sun movement ───
     const sunAngle = time * Math.PI * 2;
     this.directional.position.set(Math.cos(sunAngle) * 50, 20 + Math.sin(sunAngle) * 25, Math.sin(sunAngle) * 40);
-    this.directional.intensity = dayFactor * 2.0 + 0.3 + heightBoost * 0.3;
+    this.directional.intensity = dayFactor * 2.0 + 0.1 + heightBoost * 0.4;
 
     // ─── Fog — dynamic: less fog when zoomed out, more at night ───
     // When camera is high, reduce fog so city is visible
     const fogBase = Math.max(0.004, 0.008 - heightBoost * 0.006);
-    const fogNight = (1 - dayFactor) * 0.015;
+    const fogNight = (1 - dayFactor) * 0.008;
     const fogChaos = state.stats.zombies > 100 ? 0.003 : 0;
     (this.scene.fog as THREE.FogExp2).density = fogBase + fogNight + fogChaos;
 
