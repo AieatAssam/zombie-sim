@@ -82,11 +82,7 @@ export class Renderer3D {
   private corpseTimers: number[] = [];
   private previousAliveZombieIds: Set<number> = new Set();
 
-  // Screen shake
-  private shakeIntensity = 0;
-  private shakeDuration = 0;
-  private shakeTimer = 0;
-  private originalCamPos = new THREE.Vector3();
+  // No screen shake (removed for performance)
 
   // Starving civilians shake offset tracking
   private starvingShakeOffsets: Map<number, number> = new Map();
@@ -94,17 +90,11 @@ export class Renderer3D {
 
   // Entity geometry caches
   private civilianGeom: THREE.BufferGeometry;
-  private civilianHeadGeom: THREE.BufferGeometry;
+  private civilianHeadGeom: THREE.BufferGeometry | null;
   private zombieGeom: THREE.BufferGeometry;
   private militaryGeom: THREE.BufferGeometry;
-  private antennaGeom: THREE.BufferGeometry;
-
   // Building light meshes at night
   private buildingWindowLights: { mesh: THREE.Mesh; x: number; z: number }[] = [];
-
-  // Out-of-ammo indicator geometry cache
-  private noAmmoIndicatorGeom: THREE.BufferGeometry;
-  private starvingIndicatorGeom: THREE.BufferGeometry;
 
   // Cached dot geometry for building occupant indicators (avoids per-frame alloc)
   private occupantDotGeom: THREE.BufferGeometry;
@@ -188,7 +178,7 @@ export class Renderer3D {
     this.scene.add(this.directional);
 
     // ─── Sky dome ───
-    const skyGeom = new THREE.SphereGeometry(120, 32, 32);
+    const skyGeom = new THREE.SphereGeometry(120, 24, 24);
     const skyMat = new THREE.MeshBasicMaterial({
       color: 0x0a0a2a,
       side: THREE.BackSide,
@@ -246,7 +236,7 @@ export class Renderer3D {
     this.moon.add(glowRing);
 
     // ─── Ground with higher resolution and subtle vertex color variation ───
-    const groundGeom = new THREE.PlaneGeometry(70, 70, 30, 30);
+    const groundGeom = new THREE.PlaneGeometry(70, 70, 15, 15);
     // Add subtle random tint per vertex for ground texture variation
     const posAttr = groundGeom.attributes.position;
     const colors = new Float32Array(posAttr.count * 3);
@@ -269,8 +259,8 @@ export class Renderer3D {
     this.ground.receiveShadow = true;
     this.scene.add(this.ground);
 
-    // ─── Grid helper (finer with more divisions) ───
-    this.gridHelper = new THREE.GridHelper(70, 70, 0x2a4a2a, 0x1a2a1a);
+    // ─── Grid helper ───
+    this.gridHelper = new THREE.GridHelper(70, 30, 0x2a4a2a, 0x1a2a1a);
     this.gridHelper.position.y = 0.01;
     this.gridHelper.material.transparent = true;
     this.gridHelper.material.opacity = 0.15;
@@ -319,14 +309,11 @@ export class Renderer3D {
     this.nightOverlay.rotation.x = -Math.PI / 2;
     this.scene.add(this.nightOverlay);
 
-    // ─── Entity geometry cache ───
-    this.civilianGeom = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 16, 6);
-    this.civilianHeadGeom = new THREE.SphereGeometry(0.18, 16, 12);
-    this.zombieGeom = new THREE.ConeGeometry(0.35, 0.75, 14);
-    this.militaryGeom = new THREE.BoxGeometry(0.45, 0.6, 0.45, 3, 3, 3);
-    this.antennaGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.2, 5);
-    this.noAmmoIndicatorGeom = new THREE.ConeGeometry(0.08, 0.12, 3);
-    this.starvingIndicatorGeom = new THREE.ConeGeometry(0.15, 0.25, 8);
+    // ─── Entity geometry cache (low-poly colored spheres) ───
+    this.civilianGeom = new THREE.SphereGeometry(0.2, 12, 8);
+    this.civilianHeadGeom = null as any;  // No separate head - just one sphere
+    this.zombieGeom = new THREE.SphereGeometry(0.22, 10, 8);
+    this.militaryGeom = new THREE.SphereGeometry(0.23, 10, 8);
     this.occupantDotGeom = new THREE.PlaneGeometry(0.5, 0.5, 2, 2);
 
     // ─── Particle system (effects) ───
@@ -433,7 +420,7 @@ export class Renderer3D {
     const roadMat = new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.85, metalness: 0.3 });
     const roadEdgeMat = new THREE.MeshStandardMaterial({ color: 0x4a4a5a, roughness: 0.8, metalness: 0.1 });
     for (const r of state.map.roads) {
-      const geom = new THREE.PlaneGeometry(r.w * 0.95, r.d * 0.95, 4, 4);
+      const geom = new THREE.PlaneGeometry(r.w * 0.95, r.d * 0.95, 2, 2);
       const mesh = new THREE.Mesh(geom, roadMat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set(r.x, 0.01, r.z);
@@ -539,7 +526,7 @@ export class Renderer3D {
     // Parks
     const parkMat = new THREE.MeshStandardMaterial({ color: 0x2d5a27, roughness: 1.0 });
     for (const p of state.map.parks) {
-      const geom = new THREE.CircleGeometry(p.r * 0.8, 24);
+      const geom = new THREE.CircleGeometry(p.r * 0.8, 12);
       const mesh = new THREE.Mesh(geom, parkMat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set(p.x, 0.02, p.z);
@@ -562,7 +549,7 @@ export class Renderer3D {
         const crownH = 0.4 + Math.random() * 0.3;
         const crownR = 0.2 + Math.random() * 0.15;
         const crown = new THREE.Mesh(
-          new THREE.ConeGeometry(crownR, crownH, 12),
+          new THREE.ConeGeometry(crownR, crownH, 8),
           new THREE.MeshStandardMaterial({ color: 0x2d6a2e, roughness: 0.8 })
         );
         crown.position.set(tx, 0.55 + Math.random() * 0.3, tz);
@@ -603,7 +590,7 @@ export class Renderer3D {
         emissive: b.type === 'police' ? new THREE.Color(0x224466) : new THREE.Color(0x000000),
         emissiveIntensity: b.type === 'police' ? 0.15 : 0,
       });
-      const geom = new THREE.BoxGeometry(b.w, b.h, b.d, 6, 6, 6);
+      const geom = new THREE.BoxGeometry(b.w, b.h, b.d, 3, 3, 3);
       const mesh = new THREE.Mesh(geom, mat);
       mesh.position.set(b.x, b.h / 2, b.z);
       mesh.castShadow = true;
@@ -619,7 +606,7 @@ export class Renderer3D {
         house: 0xcccccc,     // Light gray — shelter
         warehouse: 0x666666, // Dark gray — ammo + food
         police: 0x2244aa,    // Blue — ammo (high)
-        hospital: 0x8B4513,  // Brown — (no function)
+
       };
       const defaultColor = 0x888888;
       const roofCol = new THREE.Color(roofColors[b.type] || defaultColor);
@@ -630,7 +617,7 @@ export class Renderer3D {
         emissive: roofCol,
         emissiveIntensity: 0.05,
       });
-      const roof = new THREE.Mesh(new THREE.PlaneGeometry(b.w * 0.95, b.d * 0.95, 8, 8), roofMat2);
+      const roof = new THREE.Mesh(new THREE.PlaneGeometry(b.w * 0.95, b.d * 0.95, 4, 4), roofMat2);
       roof.rotation.x = -Math.PI / 2;
       roof.position.set(b.x, b.h + 0.05, b.z);
       this.scene.add(roof);
@@ -945,16 +932,6 @@ export class Renderer3D {
     this.previousAliveZombieIds.clear();
   }
 
-  /**
-   * Trigger a screen shake
-   */
-  shake(intensity: number, duration: number): void {
-    this.shakeIntensity = intensity;
-    this.shakeDuration = duration;
-    this.shakeTimer = duration;
-    this.originalCamPos.copy(this.camera.position);
-  }
-
   update(state: SimulationState, dt: number): void {
     const time = state.timeOfDay;
     const isNight = time > 0.65 || time < 0.08;
@@ -1127,20 +1104,6 @@ export class Renderer3D {
     // ─── Update tracers ───
     this.updateTracers(dt);
 
-    // ─── Screen shake ───
-    if (this.shakeTimer > 0) {
-      this.shakeTimer -= dt;
-      const frac = this.shakeTimer / this.shakeDuration;
-      const intensity = this.shakeIntensity * frac;
-      this.camera.position.x = this.originalCamPos.x + (Math.random() - 0.5) * intensity;
-      this.camera.position.y = this.originalCamPos.y + (Math.random() - 0.5) * intensity * 0.5;
-      this.camera.position.z = this.originalCamPos.z + (Math.random() - 0.5) * intensity;
-      this.controls.target.set(0, 0, 0);
-      if (this.shakeTimer <= 0) {
-        this.camera.position.copy(this.originalCamPos);
-      }
-    }
-
     // ─── Controls ───
     this.controls.update();
 
@@ -1246,58 +1209,26 @@ export class Renderer3D {
 
       const col = new THREE.Color(e.color);
 
-      // Update material colors and state indicators
+        // Update sphere colors and state indicators
       group.children.forEach(child => {
         if (child instanceof THREE.Mesh) {
           const mat = child.material as THREE.MeshStandardMaterial;
+          mat.color.copy(col);
 
-          // ─── State indicator: starving (orange cone above head + red ! sprite) ───
-          if (child.userData.isStarving) {
-            if (e.state === 'starving') {
-              child.visible = true;
-              const mat2 = child.material as THREE.MeshStandardMaterial;
-              mat2.emissiveIntensity = 0.5 + Math.sin(time * 4 + e.id * 3) * 0.3;
-              mat2.opacity = 0.8;
-              // Subtle pulsing orange glow on top of blue body
-              const glowScale = 0.9 + Math.sin(time * 4 + e.id) * 0.1;
-              child.scale.set(glowScale, glowScale, glowScale);
-            } else {
-              child.visible = false;
-            }
-          } else if (child.userData.isStarvingBang) {
-            if (e.state === 'starving') {
-              child.visible = true;
-              const bangMat = child.material as THREE.SpriteMaterial;
-              bangMat.opacity = 0.5 + Math.sin(time * 5 + e.id * 2) * 0.4;
-              const pulseScale = 0.8 + Math.sin(time * 6 + e.id * 3) * 0.15;
-              child.scale.set(pulseScale * 0.3, pulseScale * 0.3, 1);
-            } else {
-              child.visible = false;
-            }
-          } else if (child.userData.isBody || child.userData.isHead) {
-            mat.color.copy(col);
-            // Reset scale
-            if (child.userData.isBody) {
-              group.scale.set(1, 1, 1);
-            }
-          }
+          // ─── Civilian sleeping: dimmer ───
+          if (e.isAsleep && e.type === 'civilian') {
+            mat.emissiveIntensity = 0.02;
+            mat.opacity = 0.6;
+            mat.transparent = true;
+          } else {
+            mat.transparent = false;
+            mat.opacity = 1.0;
 
-          if (child.userData.isBody || child.userData.isHead) {
-            // ─── Civilian sleeping: dimmer ───
-            if (e.isAsleep && e.type === 'civilian') {
-              mat.emissiveIntensity = 0.02;
-              mat.opacity = 0.6;
-              mat.transparent = true;
-            }
-
-            // ─── Zombie pulsing glow ───
+            // ─── Zombie pulsing green glow ───
             if (e.type === 'zombie') {
-              const pulse = 0.5 + Math.sin(time * 2.5 + e.id * 0.7) * 0.4;
-              const glow = 0.5 + Math.sin(time * 2.5 + e.id * 0.7) * 0.3;
-              if (child.userData.isBody) {
-                mat.emissive.setHex(0x44ff44);
-                mat.emissiveIntensity = glow;
-              }
+              const glow = 0.5 + Math.sin(time * 2.5 + e.id * 0.7) * 0.4;
+              mat.emissive.setHex(0x44ff44);
+              mat.emissiveIntensity = glow;
               group.scale.set(
                 1 + Math.sin(time * 1.5 + e.id) * 0.04,
                 1 + Math.sin(time * 1.5 + e.id) * 0.04,
@@ -1305,40 +1236,41 @@ export class Renderer3D {
               );
               group.rotation.y += 0.3 * (1/60);
             } else if (e.type === 'military') {
-              // ─── Aiming indicator ───
-              if (e.isAiming && child.userData.isBody) {
-                // Pulsing yellow/orange when aiming
+              // Red emissive for military
+              mat.emissive.setHex(0xff3333);
+              mat.emissiveIntensity = 0.2;
+              // Aiming: bright yellow pulse
+              if (e.isAiming) {
                 const aimPulse = 0.5 + Math.sin(time * 8 + e.id * 2) * 0.4;
                 mat.emissiveIntensity = aimPulse;
                 mat.emissive.setHex(0xffaa00);
-              } else if (child.userData.isBody) {
-                // Normal military body glow
-                mat.emissiveIntensity = 0.25;
-                mat.emissive.setHex(0xff3333);
               }
-              // ─── Antenna changes color when aiming ───
-              if (e.isAiming && child.userData.isAntenna) {
-                const aimPulse = 0.6 + Math.sin(time * 10 + e.id) * 0.4;
-                mat.emissiveIntensity = aimPulse;
-                mat.emissive.setHex(0xffaa00);
-                mat.color.setHex(0xffcc44);
-              } else if (child.userData.isAntenna) {
-                mat.emissiveIntensity = 1.0;
-                mat.emissive.setHex(0xff3333);
-                mat.color.setHex(0xaaaaaa);
-              }
-            } else if (child.userData.isBody) {
-              mat.emissiveIntensity = 0.05;
+            } else if (e.type === 'civilian') {
+              mat.emissive.setHex(0x4499ff);
+              mat.emissiveIntensity = 0.15;
             }
           }
+        }
 
-          // ─── Out-of-ammo indicator on military ───
-          if (e.type === 'military' && child.userData.isNoAmmo) {
+        // ─── Sprite-based indicators ───
+        if (child instanceof THREE.Sprite) {
+          if (child.userData.isStarvingBang) {
+            const isStarving = e.state === 'starving';
+            child.visible = isStarving;
+            if (isStarving) {
+              const bangMat = child.material as THREE.SpriteMaterial;
+              bangMat.opacity = 0.5 + Math.sin(time * 5 + e.id * 2) * 0.4;
+              const pulseScale = 0.8 + Math.sin(time * 6 + e.id * 3) * 0.15;
+              child.scale.set(pulseScale * 0.35, pulseScale * 0.35, 1);
+            }
+          } else if (child.userData.isNoAmmo) {
             const isOut = e.ammoInMag <= 0 && e.ammo <= 0;
             child.visible = isOut;
             if (isOut) {
-              (child.material as THREE.MeshStandardMaterial).emissiveIntensity =
-                0.3 + Math.sin(time * 5 + e.id) * 0.25;
+              const warnMat = child.material as THREE.SpriteMaterial;
+              warnMat.opacity = 0.3 + Math.sin(time * 5 + e.id) * 0.25;
+              const warnPulse = 0.9 + Math.sin(time * 5 + e.id) * 0.1;
+              child.scale.set(warnPulse * 0.35, warnPulse * 0.35, 1);
             }
           }
         }
@@ -1372,41 +1304,19 @@ export class Renderer3D {
     const col = new THREE.Color(e.color);
 
     if (e.type === 'civilian') {
+      // Simple blue sphere with slight emissive
       const bodyMat = new THREE.MeshStandardMaterial({
         color: col,
         roughness: 0.3,
         metalness: 0.1,
         emissive: col,
-        emissiveIntensity: 0.25,
+        emissiveIntensity: 0.15,
       });
       const body = new THREE.Mesh(this.civilianGeom, bodyMat);
-      body.position.y = 0.25;
+      body.position.y = 0.2;
       body.castShadow = true;
       body.userData.isBody = true;
       group.add(body);
-
-      const headMat = new THREE.MeshStandardMaterial({
-        color: 0xffccaa,
-        roughness: 0.5,
-      });
-      const head = new THREE.Mesh(this.civilianHeadGeom, headMat);
-      head.position.y = 0.6;
-      head.userData.isHead = true;
-      group.add(head);
-
-      // Starving indicator: small orange diamond above head (hidden by default)
-      const starvingMat = new THREE.MeshStandardMaterial({
-        color: 0xff6600,
-        emissive: 0xff6600,
-        emissiveIntensity: 0.5,
-        transparent: true,
-        opacity: 0,
-      });
-      const starvingMesh = new THREE.Mesh(this.starvingIndicatorGeom, starvingMat);
-      starvingMesh.position.y = 0.85;
-      starvingMesh.userData.isStarving = true;
-      starvingMesh.visible = false;
-      group.add(starvingMesh);
 
       // Pulsing red "!" sprite for starving civilians
       const bangCanvas = document.createElement('canvas');
@@ -1431,94 +1341,69 @@ export class Renderer3D {
         opacity: 0,
       });
       const bangSprite = new THREE.Sprite(bangMat);
-      bangSprite.position.set(0, 0.95, 0);
-      bangSprite.scale.set(0.3, 0.3, 1);
+      bangSprite.position.set(0, 0.45, 0);
+      bangSprite.scale.set(0.35, 0.35, 1);
       bangSprite.userData.isStarvingBang = true;
+      bangSprite.userData.isStarving = true;
       group.add(bangSprite);
 
     } else if (e.type === 'zombie') {
+      // Green sphere with strong emissive for bloom
       const bodyMat = new THREE.MeshStandardMaterial({
         color: col,
         roughness: 0.3,
-        metalness: 0.2,
+        metalness: 0.1,
         emissive: new THREE.Color(0x44ff44),
-        emissiveIntensity: 1.5,
+        emissiveIntensity: 1.0,
       });
       const body = new THREE.Mesh(this.zombieGeom, bodyMat);
-      body.position.y = 0.28;
-      body.castShadow = true;
-      body.userData.isBody = true;
-      group.add(body);
-
-      const headMat = new THREE.MeshStandardMaterial({
-        color: 0x88aa44,
-        emissive: 0x44ff44,
-        emissiveIntensity: 0.5,
-        roughness: 0.7,
-      });
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 5, 5), headMat);
-      head.position.y = 0.55;
-      head.userData.isHead = true;
-      group.add(head);
-
-    } else if (e.type === 'military') {
-      const bodyMat = new THREE.MeshStandardMaterial({
-        color: col,
-        roughness: 0.5,
-        metalness: 0.3,
-        emissive: col,
-        emissiveIntensity: 0.3,
-      });
-      const body = new THREE.Mesh(this.militaryGeom, bodyMat);
       body.position.y = 0.22;
       body.castShadow = true;
       body.userData.isBody = true;
       group.add(body);
 
-      const headMat = new THREE.MeshStandardMaterial({
-        color: 0xccaa88,
-        roughness: 0.5,
+    } else if (e.type === 'military') {
+      // Red sphere with slight emissive
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: col,
+        roughness: 0.4,
+        metalness: 0.2,
+        emissive: col,
+        emissiveIntensity: 0.2,
       });
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 5, 5), headMat);
-      head.position.y = 0.5;
-      head.userData.isHead = true;
-      group.add(head);
+      const body = new THREE.Mesh(this.militaryGeom, bodyMat);
+      body.position.y = 0.23;
+      body.castShadow = true;
+      body.userData.isBody = true;
+      group.add(body);
 
-      // Antenna with enhanced glow for visibility
-      const antMat = new THREE.MeshStandardMaterial({
-        color: 0xaaaaaa,
-        emissive: 0xff3333,
-        emissiveIntensity: 1.0,
-        metalness: 0.5,
-      });
-      const ant = new THREE.Mesh(this.antennaGeom, antMat);
-      ant.position.y = 0.65;
-      ant.userData.isAntenna = true;
-      group.add(ant);
-
-      // Red dot on antenna tip — brighter
-      const dotMat = new THREE.MeshStandardMaterial({
-        color: 0xff0000,
-        emissive: 0xff0000,
-        emissiveIntensity: 1.5,
-      });
-      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.025, 4, 4), dotMat);
-      dot.position.y = 0.75;
-      dot.userData.isAntenna = true;
-      group.add(dot);
-
-      // ─── Out-of-ammo indicator: small red triangle above head ───
-      const noAmmoMat = new THREE.MeshStandardMaterial({
-        color: 0xff0000,
-        emissive: 0xff0000,
-        emissiveIntensity: 0.5,
+      // Yellow "⚠" sprite for out-of-ammo military
+      const warnCanvas = document.createElement('canvas');
+      warnCanvas.width = 64;
+      warnCanvas.height = 64;
+      const warnCtx = warnCanvas.getContext('2d')!;
+      warnCtx.fillStyle = '#ffcc00';
+      warnCtx.beginPath();
+      warnCtx.arc(32, 32, 28, 0, Math.PI * 2);
+      warnCtx.fill();
+      warnCtx.fillStyle = '#000000';
+      warnCtx.font = 'bold 26px sans-serif';
+      warnCtx.textAlign = 'center';
+      warnCtx.textBaseline = 'middle';
+      warnCtx.fillText('⚠', 32, 34);
+      const warnTex = new THREE.CanvasTexture(warnCanvas);
+      const warnMat = new THREE.SpriteMaterial({
+        map: warnTex,
         transparent: true,
-        opacity: 0.8,
+        depthTest: false,
+        sizeAttenuation: true,
+        opacity: 0,
       });
-      const noAmmoMesh = new THREE.Mesh(this.noAmmoIndicatorGeom, noAmmoMat);
-      noAmmoMesh.position.y = 0.9;
-      noAmmoMesh.userData.isNoAmmo = true;
-      group.add(noAmmoMesh);
+      const warnSprite = new THREE.Sprite(warnMat);
+      warnSprite.position.set(0, 0.5, 0);
+      warnSprite.scale.set(0.35, 0.35, 1);
+      warnSprite.userData.isNoAmmo = true;
+      group.add(warnSprite);
     }
 
     return group;
@@ -1746,7 +1631,6 @@ export class Renderer3D {
     }
 
     this.decalCount = 0;
-    this.shakeTimer = 0;
   }
 
   dispose(): void {

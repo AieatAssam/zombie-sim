@@ -253,17 +253,14 @@ function checkMilestones(stats: { civilians: number; zombies: number; military: 
   if (stats.zombies >= 50 && !milestonesShown.has('zombie-50')) {
     milestonesShown.add('zombie-50');
     showNotification('🧟 50 zombies! The infection spreads!', 'zombie');
-    renderer.shake(0.3, 0.5);
   }
   if (stats.zombies >= 100 && !milestonesShown.has('zombie-100')) {
     milestonesShown.add('zombie-100');
     showNotification('🧟⚠️ 100+ ZOMBIES! City in chaos!', 'death');
-    renderer.shake(0.5, 0.8);
   }
   if (stats.zombies >= 200 && !milestonesShown.has('zombie-200')) {
     milestonesShown.add('zombie-200');
     showNotification('☠️ 200+ zombies! Extinction imminent!', 'death');
-    renderer.shake(0.8, 1.0);
   }
   if (stats.civilians <= 50 && stats.civilians > 0 && !milestonesShown.has('civ-50')) {
     milestonesShown.add('civ-50');
@@ -272,7 +269,6 @@ function checkMilestones(stats: { civilians: number; zombies: number; military: 
   if (stats.civilians <= 10 && stats.civilians > 0 && !milestonesShown.has('civ-10')) {
     milestonesShown.add('civ-10');
     showNotification('🆘 Only 10 civilians left!', 'death');
-    renderer.shake(0.4, 0.6);
   }
   const day = sim.state.day;
   if (day >= 5 && !milestonesShown.has('day-5')) {
@@ -320,7 +316,6 @@ function gameLoop(time: number): void {
       slowMoTimer = SLOW_MO_DURATION;
       firstInfectionFlash.classList.add('active');
       showNotification('⚠ FIRST INFECTION! Zombie outbreak!', 'death');
-      renderer.shake(0.6, 1.0);
     }
   }
 
@@ -328,15 +323,9 @@ function gameLoop(time: number): void {
   const zombieDelta = stats.zombies - prevZombieCount;
   if (zombieDelta > 3 && !slowMoActive) {
     const zombies = sim.state.entities.filter(e => e.type === 'zombie' && e.state !== 'dead');
-    if (zombies.length > 0 && cameraMode === 'orbit') {
-      renderer.shake(Math.min(0.2, zombieDelta * 0.02), 0.3);
-    }
   }
 
   const civDelta = prevCivilianCount - stats.civilians;
-  if (civDelta > 5) {
-    renderer.shake(Math.min(0.5, civDelta * 0.05), 0.5);
-  }
   deathShakeCooldown -= rawDt;
 
   prevZombieCount = stats.zombies;

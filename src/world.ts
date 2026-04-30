@@ -7,7 +7,7 @@ export interface Building {
   w: number;
   d: number;
   h: number;
-  type: 'house' | 'shop' | 'apt' | 'office' | 'police' | 'hospital' | 'warehouse';
+  type: 'house' | 'shop' | 'apt' | 'office' | 'police' | 'warehouse';
   color: string;
   food: number;
   ammo: number;
@@ -22,7 +22,7 @@ export interface WorldMap {
 }
 
 const BUILDING_TYPES = ['house', 'shop', 'apt', 'office', 'warehouse'] as const;
-const SPECIAL_TYPES = ['police', 'hospital'] as const;
+const SPECIAL_TYPES = ['police'] as const;
 
 const COLORS: Record<string, string> = {
   house: '#8B7355',
@@ -31,7 +31,6 @@ const COLORS: Record<string, string> = {
   office: '#7B8D8E',
   warehouse: '#6B6B6B',
   police: '#2C3E50',
-  hospital: '#6B3010',
 };
 
 function seededRandom(seed: number): () => number {
@@ -145,23 +144,15 @@ export function generateWorld(seed: number = Date.now()): WorldMap {
     }
   }
 
-  // Place special buildings (police station, hospital)
-  // Replace some buildings near edges
-  const specialPlacements: { type: 'police' | 'hospital'; x: number; z: number }[] = [];
-
-  // Find a building near each corner/edge for police station
+  // Place police station — replace a building near edge
   const sortedByX = [...buildings].sort((a, b) => a.x - b.x);
   if (sortedByX.length > 3) {
-    const policeSpot = sortedByX[Math.floor(rng() * 3)];
+    const rng2 = seededRandom(seed + 9999);
+    const policeSpot = sortedByX[Math.floor(rng2() * 3)];
     policeSpot.type = 'police';
     policeSpot.color = COLORS.police;
     policeSpot.ammo = 200;
     policeSpot.h = 2.5;
-
-    const hospitalSpot = sortedByX[sortedByX.length - 1 - Math.floor(rng() * 3)];
-    hospitalSpot.type = 'hospital';
-    hospitalSpot.color = COLORS.hospital;
-    hospitalSpot.food = 40;
   }
 
   return { width: MAP_W, depth: MAP_D, buildings, roads, parks };

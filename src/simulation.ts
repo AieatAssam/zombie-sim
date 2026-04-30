@@ -127,8 +127,38 @@ export class Simulation {
   constructor() {
     this.map = generateWorld(Date.now());
     this.state = this.createInitialState(this.map);
-    this.logEvent('🧬 Outbreak detected. Multiple infected active.', 'warning');
-    this.logEvent('🏙️ Population: 400. Military expected in 48 hours.', 'info');
+
+    const scenarios = [
+      {
+        name: '☄️ Meteor Crash',
+        text: 'A meteorite crashed in the city center, releasing a strange virus. The dead are rising.',
+        type: 'warning' as SimEvent['type'],
+      },
+      {
+        name: '🧪 Lab Leak',
+        text: 'A pharmaceutical lab experienced a containment breach. An unknown pathogen is spreading.',
+        type: 'warning' as SimEvent['type'],
+      },
+      {
+        name: '🚢 Infected Cargo',
+        text: 'A cargo ship docked carrying infected rats. The outbreak has begun in the port district.',
+        type: 'warning' as SimEvent['type'],
+      },
+      {
+        name: '🧬 Ancient Spores',
+        text: 'Construction workers unearthed ancient fungal spores from permafrost. They reanimate dead tissue.',
+        type: 'warning' as SimEvent['type'],
+      },
+      {
+        name: '📡 Signal from Space',
+        text: 'A strange signal from deep space corrupted the city\'s network. People exposed to screens turned violent.',
+        type: 'warning' as SimEvent['type'],
+      },
+    ];
+
+    const scenario = scenarios[Math.floor(Math.random() * scenarios.length)];
+    this.logEvent(scenario.text, scenario.type);
+    this.logEvent('🏙️ Population: 400. Military expected when outbreak escalates.', 'info');
   }
 
   private generateMap(): WorldMap {
@@ -1338,6 +1368,50 @@ export class Simulation {
         if (gotFood > 0) { targetB.food -= gotFood; e.hunger = Math.min(100, e.hunger + gotFood); }
         return;
       }
+    }
+
+    // ─── HIDING: retreat to building when overwhelmed by zombies and low on ammo ───
+    if (e.state !== 'hiding') {
+      let nearbyZombies = 0;
+      for (const other of this.state.entities) {
+        if (other.type === 'zombie' && other.state !== 'dead' && dist(e, other) < 8) {
+          nearbyZombies++;
+        }
+      }
+      if (nearbyZombies >= 2 && e.ammo < 5) {
+        const targetB = findNearestBuilding(this.state.buildings, e.x, e.z);
+        if (targetB) {
+          e.state = 'hiding';
+          e.buildingId = targetB.id;
+          this.logEventThrottled(`Military #${e.id} hides in a building, overwhelmed by ${nearbyZombies} zombies.`, 'military', 5);
+        }
+      }
+    }
+
+    // While hiding: stationary, restore ammo from hidden reserves
+    if (e.state === 'hiding') {
+      e.vx = 0;
+      e.vz = 0;
+      // Restore 1 round every 2 seconds from hidden reserves
+      e.ammo = Math.min(e.maxAmmo, e.ammo + 0.5 * dt);
+
+      // Check exit conditions: enough ammo (>10 total) OR no zombies within 15 units
+      const zCheck = this.findNearest(e, 15, 'zombie');
+      const noZombiesNear = !zCheck || dist(e, zCheck) > 15;
+      const hasEnoughAmmo = (e.ammo + e.ammoInMag) > 10;
+
+      if (hasEnoughAmmo || noZombiesNear) {
+        e.state = 'patrolling';
+        e.buildingId = null;
+        this.logEventThrottled(`Military #${e.id} exits hiding (ammo: ${Math.round(e.ammo + e.ammoInMag)} rounds).`, 'military', 5);
+        // Reload magazine from restored reserves
+        if (e.ammoInMag < e.magazineSize && e.ammo > 0) {
+          const fillMag = Math.min(e.magazineSize - e.ammoInMag, e.ammo);
+          e.ammoInMag += fillMag;
+          e.ammo -= fillMag;
+        }
+      }
+      return;
     }
 
     // ─── SQUAD BEHAVIOR ───
