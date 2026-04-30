@@ -43,11 +43,6 @@ export class Renderer3D {
   private dustPositions: Float32Array;
   private dustVelocities: Float32Array;
 
-  // Zombie glow
-  private glowParticles: THREE.Points;
-  private glowPositions: Float32Array;
-  private glowColors: Float32Array;
-
   // Sky / atmosphere
   private sky: THREE.Mesh;
   private stars: THREE.Points;
@@ -323,24 +318,6 @@ export class Renderer3D {
     this.dustParticles = new THREE.Points(dustGeom, dustMat);
     this.scene.add(this.dustParticles);
 
-    // ─── Zombie glow particles ───
-    const glowGeom = new THREE.BufferGeometry();
-    this.glowPositions = new Float32Array(2000 * 3);
-    this.glowColors = new Float32Array(2000 * 3);
-    glowGeom.setAttribute('position', new THREE.BufferAttribute(this.glowPositions, 3));
-    glowGeom.setAttribute('color', new THREE.BufferAttribute(this.glowColors, 3));
-    const glowMat = new THREE.PointsMaterial({
-      size: 0.5,
-      transparent: true,
-      opacity: 0.5,
-      blending: THREE.AdditiveBlending,
-      vertexColors: true,
-      depthWrite: false,
-      sizeAttenuation: true,
-    });
-    this.glowParticles = new THREE.Points(glowGeom, glowMat);
-    this.scene.add(this.glowParticles);
-
     // Resize
     window.addEventListener('resize', () => {
       const w = container.clientWidth;
@@ -473,12 +450,12 @@ export class Renderer3D {
         this.buildingMeshes.push(vBar);
       }
 
-      // Police station light bar
+      // Police station light bar — enhanced with brighter glow
       if (b.type === 'police') {
         const lightMat = new THREE.MeshStandardMaterial({
           color: 0x0044ff,
           emissive: 0x0044ff,
-          emissiveIntensity: 0.5,
+          emissiveIntensity: 1.0,
         });
         const lightBar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.15), lightMat);
         lightBar.position.set(b.x, b.h + 0.08, b.z);
@@ -488,38 +465,62 @@ export class Renderer3D {
         const lightMat2 = new THREE.MeshStandardMaterial({
           color: 0xff0000,
           emissive: 0xff0000,
-          emissiveIntensity: 0.5,
+          emissiveIntensity: 1.0,
         });
         const lightBar2 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.08, 0.5), lightMat2);
         lightBar2.position.set(b.x, b.h + 0.08, b.z);
         this.scene.add(lightBar2);
         this.specialBuildingLights.push(lightBar2);
+
+        // Small glowing cube on top
+        const beaconMat = new THREE.MeshStandardMaterial({
+          color: 0xff0044,
+          emissive: 0xff0044,
+          emissiveIntensity: 1.5,
+        });
+        const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), beaconMat);
+        beacon.position.set(b.x, b.h + 0.18, b.z);
+        this.scene.add(beacon);
+        this.specialBuildingLights.push(beacon);
       }
 
-      // Shop sign
+      // Shop — yellow cube marker above roof
       if (b.type === 'shop') {
         const signMat = new THREE.MeshStandardMaterial({
           color: 0xffdd44,
           emissive: 0xffdd44,
-          emissiveIntensity: 0.2,
+          emissiveIntensity: 0.4,
         });
-        const sign = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.3), signMat);
-        sign.position.set(b.x, b.h + 0.1, b.z);
+        const sign = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.12, 0.25), signMat);
+        sign.position.set(b.x, b.h + 0.12, b.z);
         this.scene.add(sign);
-        this.buildingMeshes.push(sign);
+        this.specialBuildingLights.push(sign);
       }
 
-      // Warehouse marking
+      // Warehouse — small gray cube marking
       if (b.type === 'warehouse') {
         const markMat = new THREE.MeshStandardMaterial({
-          color: 0x888888,
-          emissive: 0x888888,
-          emissiveIntensity: 0.1,
+          color: 0x999999,
+          emissive: 0x999999,
+          emissiveIntensity: 0.2,
         });
-        const mark = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.5), markMat);
+        const mark = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.1, 0.35), markMat);
+        mark.position.set(b.x, b.h + 0.1, b.z);
+        this.scene.add(mark);
+        this.specialBuildingLights.push(mark);
+      }
+
+      // House — small white/gray marker
+      if (b.type === 'house') {
+        const houseMat = new THREE.MeshStandardMaterial({
+          color: 0xcccccc,
+          emissive: 0xcccccc,
+          emissiveIntensity: 0.15,
+        });
+        const mark = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.06, 0.15), houseMat);
         mark.position.set(b.x, b.h + 0.06, b.z);
         this.scene.add(mark);
-        this.buildingMeshes.push(mark);
+        this.specialBuildingLights.push(mark);
       }
 
       // Windows with glow at night
@@ -733,9 +734,6 @@ export class Renderer3D {
     // ─── Update entities ───
     this.updateEntityMeshes(state, dayFactor, state.totalTime);
 
-    // ─── Update glow ───
-    this.updateGlowParticles(state, state.totalTime, dayFactor);
-
     // ─── Update particles ───
     this.updateParticles(dt);
 
@@ -889,16 +887,19 @@ export class Renderer3D {
         if (child instanceof THREE.Mesh) {
           const mat = child.material as THREE.MeshStandardMaterial;
 
-          // ─── State indicator: starving (smaller/redder) ───
-          if (e.state === 'starving' && (child.userData.isBody || child.userData.isHead)) {
-            if (child.userData.isBody) {
-              mat.color.lerp(new THREE.Color(0xff6600), 0.15);
-              mat.emissive.setHex(0xff4400);
-              mat.emissiveIntensity = 0.3 + Math.sin(time * 4 + e.id) * 0.15;
+          // ─── State indicator: starving (orange cone above head) ───
+          if (child.userData.isStarving) {
+            if (e.state === 'starving') {
+              child.visible = true;
+              const mat2 = child.material as THREE.MeshStandardMaterial;
+              mat2.emissiveIntensity = 0.5 + Math.sin(time * 4 + e.id * 3) * 0.3;
+              mat2.opacity = 0.8;
+              // Subtle pulsing orange glow on top of blue body
+              const glowScale = 0.9 + Math.sin(time * 4 + e.id) * 0.1;
+              child.scale.set(glowScale, glowScale, glowScale);
+            } else {
+              child.visible = false;
             }
-            // Shaky movement via scale pulsing
-            const shake = 0.92 + Math.sin(time * 8 + e.id * 5) * 0.04;
-            group.scale.set(shake * 0.8, shake * 0.8, shake * 0.8);
           } else if (child.userData.isBody || child.userData.isHead) {
             mat.color.copy(col);
             // Reset scale
@@ -929,21 +930,10 @@ export class Renderer3D {
                 1 + Math.sin(time * 1.5 + e.id) * 0.04
               );
               group.rotation.y += 0.3 * (1/60);
-            } else if (e.infectionTimer > 0) {
-              // Infected
-              const pulse = 0.5 + Math.sin(time * 3 + e.id) * 0.4;
-              if (child.userData.isBody) {
-                mat.emissive.setHex(0x88ff44);
-                mat.emissiveIntensity = pulse;
-              }
-              group.scale.set(
-                1 + Math.sin(time * 2 + e.id) * 0.06,
-                1 + Math.sin(time * 2 + e.id) * 0.06,
-                1 + Math.sin(time * 2 + e.id) * 0.06
-              );
             } else if (e.type === 'military' && child.userData.isBody) {
-              mat.emissiveIntensity = 0.15;
-              mat.emissive.setHex(0xff4444);
+              // More visible antenna glow for military
+              mat.emissiveIntensity = 0.25;
+              mat.emissive.setHex(0xff3333);
             } else if (child.userData.isBody) {
               mat.emissiveIntensity = 0.05;
             }
@@ -1004,6 +994,20 @@ export class Renderer3D {
       head.userData.isHead = true;
       group.add(head);
 
+      // Starving indicator: small orange diamond above head (hidden by default)
+      const starvingMat = new THREE.MeshStandardMaterial({
+        color: 0xff6600,
+        emissive: 0xff6600,
+        emissiveIntensity: 0.5,
+        transparent: true,
+        opacity: 0,
+      });
+      const starvingMesh = new THREE.Mesh(this.starvingIndicatorGeom, starvingMat);
+      starvingMesh.position.y = 0.78;
+      starvingMesh.userData.isStarving = true;
+      starvingMesh.visible = false;
+      group.add(starvingMesh);
+
     } else if (e.type === 'zombie') {
       const bodyMat = new THREE.MeshStandardMaterial({
         color: col,
@@ -1052,11 +1056,11 @@ export class Renderer3D {
       head.userData.isHead = true;
       group.add(head);
 
-      // Antenna
+      // Antenna with enhanced glow for visibility
       const antMat = new THREE.MeshStandardMaterial({
         color: 0xaaaaaa,
-        emissive: 0xff4444,
-        emissiveIntensity: 0.3,
+        emissive: 0xff3333,
+        emissiveIntensity: 1.0,
         metalness: 0.5,
       });
       const ant = new THREE.Mesh(this.antennaGeom, antMat);
@@ -1064,11 +1068,11 @@ export class Renderer3D {
       ant.userData.isAntenna = true;
       group.add(ant);
 
-      // Red dot on antenna tip
+      // Red dot on antenna tip — brighter
       const dotMat = new THREE.MeshStandardMaterial({
         color: 0xff0000,
         emissive: 0xff0000,
-        emissiveIntensity: 0.8,
+        emissiveIntensity: 1.5,
       });
       const dot = new THREE.Mesh(new THREE.SphereGeometry(0.025, 4, 4), dotMat);
       dot.position.y = 0.75;
@@ -1090,33 +1094,6 @@ export class Renderer3D {
     }
 
     return group;
-  }
-
-  private updateGlowParticles(state: SimulationState, time: number, dayFactor: number): void {
-    const zombies = state.entities.filter(e => e.type === 'zombie' && e.state !== 'dead');
-    const glowPerZombie = zombies.length > 100 ? 3 : zombies.length > 50 ? 4 : 6;
-    let idx = 0;
-    const maxGlow = Math.min(1800, zombies.length * glowPerZombie + 100);
-    for (const z of zombies) {
-      for (let j = 0; j < glowPerZombie && idx < maxGlow; j++) {
-        const angle = Math.random() * Math.PI * 2;
-        const rad = 0.4 + Math.random() * 0.7;
-        const pulse = Math.sin(time * 2 + z.id * 0.5 + j) * 0.2;
-        this.glowPositions[idx * 3] = z.x + Math.cos(angle) * (rad + pulse);
-        this.glowPositions[idx * 3 + 1] = 0.15 + Math.random() * 0.4;
-        this.glowPositions[idx * 3 + 2] = z.z + Math.sin(angle) * (rad + pulse);
-        this.glowColors[idx * 3] = 0.1 + Math.random() * 0.2;
-        this.glowColors[idx * 3 + 1] = 0.4 + Math.random() * 0.5;
-        this.glowColors[idx * 3 + 2] = 0.05;
-        idx++;
-      }
-    }
-    for (let i = idx * 3; i < this.glowPositions.length; i++) {
-      this.glowPositions[i] = 0;
-    }
-    (this.glowParticles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-    (this.glowParticles.geometry.attributes.color as THREE.BufferAttribute).needsUpdate = true;
-    this.glowParticles.geometry.setDrawRange(0, idx);
   }
 
   private updateParticles(dt: number): void {
@@ -1263,8 +1240,6 @@ export class Renderer3D {
     }
 
     this.decalCount = 0;
-    this.glowPositions.fill(0);
-    this.glowColors.fill(0);
     this.shakeTimer = 0;
   }
 

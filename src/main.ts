@@ -90,20 +90,25 @@ document.getElementById('ui-overlay')!.appendChild(entityPopup);
 legendPanel = document.createElement('div');
 legendPanel.id = 'legend-panel';
 legendPanel.innerHTML = `
-  <div class="legend-title">📋 LEGEND</div>
   <div class="legend-item"><span class="legend-icon legend-civ"></span> Civilian (blue)</div>
   <div class="legend-item"><span class="legend-icon legend-zom"></span> Zombie (green)</div>
   <div class="legend-item"><span class="legend-icon legend-mil"></span> Military (red)</div>
-  <div class="legend-item"><span class="legend-icon legend-inf"></span> Infected (yellow)</div>
-  <div class="legend-item"><span class="legend-icon legend-starve"></span> Starving (orange)</div>
+  <div class="legend-item"><span class="legend-icon legend-starve"></span> Starving (orange ▲)</div>
   <div class="legend-item"><span class="legend-icon legend-noammo"></span> Out of Ammo (🚫)</div>
+  <div class="legend-chart-title">📈 CHART LINES:</div>
+  <div class="legend-item"><span class="chart-line chart-civ"></span> Civilians (blue)</div>
+  <div class="legend-item"><span class="chart-line chart-zom"></span> Zombies (green)</div>
+  <div class="legend-item"><span class="chart-line chart-mil"></span> Military (red)</div>
+  <div class="legend-buildings-title">🏢 BUILDINGS:</div>
   <div class="legend-item"><span class="legend-icon legend-shop"></span> Shop (food)</div>
   <div class="legend-item"><span class="legend-icon legend-ware"></span> Warehouse (ammo)</div>
-  <div class="legend-item"><span class="legend-icon legend-hospital"></span> Hospital</div>
+  <div class="legend-item"><span class="legend-icon legend-hospital"></span> Hospital (heal)</div>
   <div class="legend-item"><span class="legend-icon legend-police"></span> Police Station</div>
-  <div class="legend-hint">Press L to toggle</div>
+  <div class="legend-item"><span class="legend-icon legend-house"></span> House (shelter)</div>
+  <div class="legend-hint">Press L to hide</div>
 `;
 document.getElementById('ui-overlay')!.appendChild(legendPanel);
+legendPanel.classList.add('visible');
 
 // ─── Add keyframe styles ───
 const styleSheet = document.createElement('style');
@@ -190,17 +195,17 @@ function drawChart(): void {
     }
   };
 
-  drawLine(hist.map(h => h.zombies), '#44ff44', true);
-  drawLine(hist.map(h => h.civilians), '#4da6ff', true);
-  drawLine(hist.map(h => h.military), '#ff4444', false);
+  drawLine(hist.map(h => h.zombies), '#33ff33', true);
+  drawLine(hist.map(h => h.civilians), '#4499ff', true);
+  drawLine(hist.map(h => h.military), '#ff3333', false);
 
-  chartCtx.fillStyle = '#555';
+  chartCtx.fillStyle = '#4499ff';
   chartCtx.font = '8px monospace';
   chartCtx.textAlign = 'left';
   chartCtx.fillText('Civ', 10, 10);
-  chartCtx.fillStyle = '#44ff44';
+  chartCtx.fillStyle = '#33ff33';
   chartCtx.fillText('Zom', 10, 20);
-  chartCtx.fillStyle = '#ff4444';
+  chartCtx.fillStyle = '#ff3333';
   chartCtx.fillText('Mil', 10, 30);
   chartCtx.fillStyle = '#555';
   chartCtx.textAlign = 'right';
@@ -379,13 +384,6 @@ function gameLoop(time: number): void {
   // Starving count
   if (statStarving) statStarving.textContent = String(sim.state.starvingCount);
 
-  // ─── Legend auto-hide ───
-  legendTimer += rawDt;
-  if (legendTimer > 8 && legendVisible) {
-    legendVisible = false;
-    legendPanel.classList.remove('visible');
-  }
-
   // ─── Stat box alerts ───
   const zombieBox = document.querySelector('.zombie-stat') as HTMLElement;
   if (zombieBox) {
@@ -539,7 +537,7 @@ renderer.renderer.domElement.addEventListener('click', (event: MouseEvent) => {
 
 function showEntityPopup(entity: { id: number; type: string; hp: number; maxHp: number; state: string; kills?: number; ammo?: number; ammoInMag?: number; isReloading?: boolean; hunger?: number }, x: number, y: number): void {
   const typeLabel = entity.type.charAt(0).toUpperCase() + entity.type.slice(1);
-  let html = `<div class="popup-title" style="color: ${entity.type === 'zombie' ? '#44ff44' : entity.type === 'military' ? '#ff4444' : '#4da6ff'}">${typeLabel} #${entity.id}</div>`;
+  let html = `<div class="popup-title" style="color: ${entity.type === 'zombie' ? '#33ff33' : entity.type === 'military' ? '#ff3333' : '#4499ff'}">${typeLabel} #${entity.id}</div>`;
   html += `<div class="popup-row"><span class="label">HP</span><span class="value">${Math.round(entity.hp)}/${entity.maxHp}</span></div>`;
   html += `<div class="popup-row"><span class="label">State</span><span class="value">${entity.state}</span></div>`;
   if (entity.type === 'military') {

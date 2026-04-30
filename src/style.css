@@ -385,21 +385,49 @@ html, body {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.legend-civ { background: #4da6ff; }
-.legend-zom { background: #44ff44; box-shadow: 0 0 6px #44ff44; }
-.legend-mil { background: #ff4444; }
-.legend-inf { background: #88ff44; }
+.legend-civ { background: #4499ff; }
+.legend-zom { background: #33ff33; box-shadow: 0 0 6px #33ff33; }
+.legend-mil { background: #ff3333; }
 .legend-starve { background: #ff6600; }
 .legend-noammo { background: transparent; font-size: 12px; }
 .legend-shop { background: #CD853F; }
 .legend-ware { background: #8E8E8E; }
 .legend-hospital { background: #8B4513; }
 .legend-police { background: #2C3E50; border: 1px solid #4488ff; }
+.legend-house { background: #cccccc; border: 1px solid #999; }
 .legend-hint {
   margin-top: 6px;
   font-size: 9px;
   color: #666;
   text-align: center;
+}
+
+/* Chart line legend */
+.chart-line {
+  display: inline-block;
+  width: 12px;
+  height: 3px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+.chart-civ { background: #4499ff; }
+.chart-zom { background: #33ff33; }
+.chart-mil { background: #ff3333; }
+.legend-chart-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: #aaa;
+  margin-top: 6px;
+  margin-bottom: 2px;
+  letter-spacing: 0.5px;
+}
+.legend-buildings-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: #aaa;
+  margin-top: 6px;
+  margin-bottom: 2px;
+  letter-spacing: 0.5px;
 }
 
 /* ─── Game Over ─── */
