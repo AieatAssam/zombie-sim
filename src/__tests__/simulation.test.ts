@@ -138,6 +138,8 @@ describe('Simulation', () => {
     it('should mark civilians as starving when hunger < 25', () => {
       // Find or create a starving civilian by draining hunger
       const civ = sim.state.entities.find(e => e.type === 'civilian')!;
+      // Remove any nearby zombies that might trigger fleeing instead
+      sim.state.entities = sim.state.entities.filter(e => e.type !== 'zombie');
       civ.hunger = 20; // Force starvation
       
       sim.tick(1); // One tick should trigger starving state
