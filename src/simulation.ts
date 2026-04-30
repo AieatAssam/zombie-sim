@@ -433,29 +433,56 @@ export class Simulation {
     }
   }
 
-  // ─── BUILDING COLLISION: only push zombies out of buildings ───
+  // ─── BUILDING COLLISION: smooth slide along walls ───
   private pushOutOfBuilding(e: Entity): void {
     for (const b of this.state.buildings) {
-      const hw = b.w / 2;
-      const hd = b.d / 2;
-      if (Math.abs(b.x - e.x) < hw && Math.abs(b.z - e.z) < hd) {
-        // Zombies always get pushed out
+      const hw = b.w / 2 + 0.2;  // Slight margin for smoothness
+      const hd = b.d / 2 + 0.2;
+      const dx = e.x - b.x;
+      const dz = e.z - b.z;
+      
+      if (Math.abs(dx) < hw && Math.abs(dz) < hd) {
+        // Zombies get pushed out with smooth slide-along-wall physics
         if (e.type === 'zombie') {
-          const dx = e.x - b.x;
-          const dz = e.z - b.z;
-          const distRight = hw - dx;
-          const distLeft = hw + dx;
-          const distTop = hd - dz;
-          const distBottom = hd + dz;
-          const minDist = Math.min(distRight, distLeft, distTop, distBottom);
-
-          if (minDist === distRight) e.x = b.x + hw + 0.3;
-          else if (minDist === distLeft) e.x = b.x - hw - 0.3;
-          else if (minDist === distTop) e.z = b.z + hd + 0.3;
-          else e.z = b.z - hd - 0.3;
+          // Calculate overlap on each axis
+          const overlapX = hw - Math.abs(dx);
+          const overlapZ = hd - Math.abs(dz);
+          
+          // Push out along the axis with LESS overlap (the direction of entry)
+          if (overlapX < overlapZ) {
+            // Push horizontally, preserve vertical velocity for sliding
+            if (dx > 0) { e.x = b.x + hw; e.vx = Math.max(e.vx, 0.1); }
+            else { e.x = b.x - hw; e.vx = Math.min(e.vx, -0.1); }
+          } else {
+            // Push vertically, preserve horizontal velocity for sliding
+            if (dz > 0) { e.z = b.z + hd; e.vz = Math.max(e.vz, 0.1); }
+            else { e.z = b.z - hd; e.vz = Math.min(e.vz, -0.1); }
+          }
         } else {
-          // Civilians and military can stay inside — track which building
+          // Civilians and military can stay inside
           e.buildingId = b.id;
+        }
+      } else if (e.type === 'zombie') {
+        // Pre-emptive steering: if zombie is heading directly toward a building wall,
+        // add a slight perpendicular nudge to slide around it
+        const margin = 0.5;
+        const nearX = Math.abs(dx) < hw + margin && Math.abs(dx) > hw - margin;
+        const nearZ = Math.abs(dz) < hd + margin && Math.abs(dz) > hd - margin;
+        
+        if (nearX && Math.abs(dz) < hd) {
+          // Zombie is near a vertical wall — slide along it
+          const headingZ = e.vz;
+          if (Math.abs(headingZ) < 0.1 && Math.abs(e.vx) > 0.1) {
+            // Moving directly at wall — add sliding velocity
+            e.vz += (dz > 0 ? 0.3 : -0.3) * 0.3;
+          }
+        } else if (nearZ && Math.abs(dx) < hw) {
+          // Zombie is near a horizontal wall — slide along it
+          const headingX = e.vx;
+          if (Math.abs(headingX) < 0.1 && Math.abs(e.vz) > 0.1) {
+            // Moving directly at wall — add sliding velocity
+            e.vx += (dx > 0 ? 0.3 : -0.3) * 0.3;
+          }
         }
       }
     }
@@ -1059,8 +1086,8 @@ export class Simulation {
     for (const other of this.state.entities) {
       if (other.id === e.id || other.state === 'dead') continue;
       if (other.type !== 'civilian' && other.type !== 'military') continue;
-      // Skip civilians who are safely inside a building
-      if (other.type === 'civilian' && other.buildingId !== null && (other.state === 'hiding' || other.state === 'sleeping' || other.state === 'seeking_shelter')) continue;
+      // Skip civilians who are safely inside a building (hunger is what drives them out)
+      if (other.type === 'civilian' && other.buildingId !== null && (other.state === 'hiding' || other.state === 'sleeping' || other.state === 'seeking_shelter' || other.state === 'foraging')) continue;
       const d = dist(e, other);
       if (d < bestDist) {
         // For visual aggro (no alert), check line of sight
