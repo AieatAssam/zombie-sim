@@ -269,7 +269,7 @@ export class Renderer3D {
     this.militaryGeom = new THREE.BoxGeometry(0.45, 0.6, 0.45);
     this.antennaGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.2, 3);
     this.noAmmoIndicatorGeom = new THREE.ConeGeometry(0.08, 0.12, 3);
-    this.starvingIndicatorGeom = new THREE.ConeGeometry(0.06, 0.08, 3);
+    this.starvingIndicatorGeom = new THREE.ConeGeometry(0.15, 0.25, 6);
 
     // ─── Particle system (effects) ───
     this.particleGeom = new THREE.BufferGeometry();
@@ -459,11 +459,11 @@ export class Renderer3D {
           emissiveIntensity: 0.3,
         });
         const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.2), crossMat);
-        hBar.position.set(b.x, b.h + 0.06, b.z);
+        hBar.position.set(b.x, b.h + 0.08, b.z);
         this.scene.add(hBar);
         this.buildingMeshes.push(hBar);
         const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.8), crossMat);
-        vBar.position.set(b.x, b.h + 0.06, b.z);
+        vBar.position.set(b.x, b.h + 0.08, b.z);
         this.scene.add(vBar);
         this.buildingMeshes.push(vBar);
       }
@@ -536,7 +536,7 @@ export class Renderer3D {
           emissiveIntensity: 0.15,
         });
         const mark = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.08, 0.25), houseMat);
-        mark.position.set(b.x, b.h + 0.06, b.z);
+        mark.position.set(b.x, b.h + 0.08, b.z);
         this.scene.add(mark);
         this.specialBuildingLights.push(mark);
       }
@@ -868,7 +868,7 @@ export class Renderer3D {
       }
     }
 
-    const dotGeom = new THREE.PlaneGeometry(0.16, 0.16);
+    const dotGeom = new THREE.PlaneGeometry(0.6, 0.6);
 
     for (const [bId, count] of buildingOccupants.entries()) {
       if (count <= 0) continue;
@@ -878,7 +878,7 @@ export class Renderer3D {
       const dotCount = Math.min(count, 12);
       const cols = Math.min(4, Math.ceil(Math.sqrt(dotCount)));
       const rows = Math.ceil(dotCount / cols);
-      const spacing = 0.3;
+      const spacing = 0.7;
 
       let dots = this.buildingOccupantDots.get(bId);
 
@@ -891,14 +891,14 @@ export class Renderer3D {
           const col = i % cols;
           const row = Math.floor(i / cols);
           const mat = new THREE.MeshBasicMaterial({
-            color: i < 2 ? 0x44aaff : 0x66ccff,
+            color: i < 2 ? 0x44ddff : 0x88eeff,
             transparent: true,
-            opacity: 0.85,
+            opacity: 1.0,
             depthWrite: false,
             side: THREE.DoubleSide,
           });
           const dot = new THREE.Mesh(dotGeom.clone(), mat);
-          dot.position.set(b.x + startX + col * spacing, b.h + 0.06, b.z + startZ + row * spacing);
+          dot.position.set(b.x + startX + col * spacing, b.h + 0.08, b.z + startZ + row * spacing);
           dot.rotation.x = -Math.PI / 2;
           this.scene.add(dot);
           dots.push(dot);
@@ -1144,25 +1144,25 @@ export class Renderer3D {
         opacity: 0,
       });
       const starvingMesh = new THREE.Mesh(this.starvingIndicatorGeom, starvingMat);
-      starvingMesh.position.y = 0.78;
+      starvingMesh.position.y = 0.85;
       starvingMesh.userData.isStarving = true;
       starvingMesh.visible = false;
       group.add(starvingMesh);
 
       // Pulsing red "!" sprite for starving civilians
       const bangCanvas = document.createElement('canvas');
-      bangCanvas.width = 32;
-      bangCanvas.height = 32;
+      bangCanvas.width = 64;
+      bangCanvas.height = 64;
       const bangCtx = bangCanvas.getContext('2d')!;
       bangCtx.fillStyle = '#ff0000';
       bangCtx.beginPath();
-      bangCtx.arc(16, 16, 14, 0, Math.PI * 2);
+      bangCtx.arc(32, 32, 28, 0, Math.PI * 2);
       bangCtx.fill();
       bangCtx.fillStyle = '#ffffff';
       bangCtx.font = 'bold 24px sans-serif';
       bangCtx.textAlign = 'center';
       bangCtx.textBaseline = 'middle';
-      bangCtx.fillText('!', 16, 17);
+      bangCtx.fillText('!', 32, 33);
       const bangTex = new THREE.CanvasTexture(bangCanvas);
       const bangMat = new THREE.SpriteMaterial({
         map: bangTex,
