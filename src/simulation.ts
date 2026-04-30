@@ -1371,7 +1371,8 @@ export class Simulation {
     }
 
     // ─── HIDING: retreat to building when overwhelmed by zombies and low on ammo ───
-    if (e.state !== 'hiding') {
+    const isAlreadyHiding = e.state === 'hiding';
+    if (!isAlreadyHiding) {
       let nearbyZombies = 0;
       for (const other of this.state.entities) {
         if (other.type === 'zombie' && other.state !== 'dead' && dist(e, other) < 8) {
