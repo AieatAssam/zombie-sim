@@ -28,7 +28,16 @@ jobs:
       - name: Run TypeScript type check
         run: npx tsc --noEmit
 
-      - name: Run unit tests with coverage
+      - name: Build
+        run: npm run build
+
+      - name: Start preview server for mobile tests
+        run: |
+          npx vite preview --host 0.0.0.0 --port 5173 &
+          sleep 3
+          curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
+
+      - name: Run all tests including mobile viewport
         run: npm run test:coverage
 
       - name: Upload coverage to GitHub
