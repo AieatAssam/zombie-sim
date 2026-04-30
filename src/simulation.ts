@@ -7,7 +7,8 @@ export type EntityType = 'civilian' | 'zombie' | 'military';
 export type EntityState =
   | 'idle' | 'wandering' | 'fleeing' | 'foraging' | 'sleeping' | 'dead'
   | 'hunting' | 'attacking' | 'patrolling' | 'engaging' | 'resupplying' | 'hiding'
-  | 'reloading' | 'starving' | 'feeding' | 'aiming';
+  | 'reloading' | 'starving' | 'feeding' | 'aiming'
+  | 'seeking_shelter';
 
 export interface Entity {
   id: number;
@@ -560,7 +561,7 @@ export class Simulation {
 
   // ─── CIVILIAN AI ───
   private updateCivilian(e: Entity, dt: number, isNight: boolean): void {
-    e.hunger -= 0.35 * dt;
+    e.hunger -= 0.5 * dt;
     e.fatigue += 0.15 * dt;
 
     // Check if starving
@@ -569,8 +570,8 @@ export class Simulation {
     }
 
     // Starvation
-    if (e.hunger <= -30) {
-      e.hp -= 4 * dt;
+    if (e.hunger <= -20) {
+      e.hp -= 6 * dt;
       if (e.hp <= 0) {
         e.state = 'dead';
         this.state.stats.civiliansStarved++;
@@ -578,17 +579,62 @@ export class Simulation {
       }
     }
 
-    // Night sleep
-    if (isNight && e.fatigue > 60 && e.state !== 'starving') {
-      e.isAsleep = true;
-      e.state = 'sleeping';
-      e.vx = 0; e.vz = 0;
-      return;
+    // Night shelter: civilians seek buildings to sleep in
+    if (isNight && e.fatigue > 60 && e.state !== 'starving' && e.state !== 'fleeing' && e.state !== 'hiding') {
+      if (e.state !== 'seeking_shelter' && !e.isAsleep) {
+        // Find nearest building to sleep in
+        const targetB = findNearestBuilding(this.state.buildings, e.x, e.z);
+        if (targetB) {
+          e.state = 'seeking_shelter';
+          e.buildingId = targetB.id;
+        } else {
+          // Fallback: sleep in place if no building found
+          e.isAsleep = true;
+          e.state = 'sleeping';
+          e.vx = 0; e.vz = 0;
+          return;
+        }
+      }
+      if (e.state === 'seeking_shelter') {
+        const targetB = e.buildingId !== null ? this.state.buildings.find(b => b.id === e.buildingId) : null;
+        if (targetB) {
+          // Check if inside the building
+          const inside = isInsideBuilding(this.state.buildings, e.x, e.z, 0.5);
+          if (inside && inside.id === targetB.id) {
+            // Inside! Go to sleep
+            e.isAsleep = true;
+            e.state = 'sleeping';
+            e.vx = 0; e.vz = 0;
+            e.buildingId = targetB.id;
+            return;
+          } else {
+            // Move toward building
+            const dx = targetB.x - e.x;
+            const dz = targetB.z - e.z;
+            const len = Math.sqrt(dx * dx + dz * dz) || 1;
+            const spd = e.speed * 1.0;
+            e.vx += (dx / len) * spd * dt * 0.4;
+            e.vz += (dz / len) * spd * dt * 0.4;
+            return;
+          }
+        } else {
+          // Building reference lost, fallback
+          e.isAsleep = true;
+          e.state = 'sleeping';
+          e.vx = 0; e.vz = 0;
+          return;
+        }
+      }
     }
     if (e.isAsleep) {
       e.fatigue -= 3.0 * dt;
       e.hunger -= 0.1 * dt;
-      if (e.fatigue <= 0) { e.fatigue = 0; e.isAsleep = false; e.state = 'wandering'; }
+      if (e.fatigue <= 0) {
+        e.fatigue = 0;
+        e.isAsleep = false;
+        e.state = 'wandering';
+        e.buildingId = null; // Leave building when waking up
+      }
       return;
     }
 
@@ -985,7 +1031,7 @@ export class Simulation {
 
   // ─── MILITARY AI ───
   private updateMilitary(e: Entity, dt: number, isNight: boolean): void {
-    e.hunger -= 0.25 * dt;
+    e.hunger -= 0.4 * dt;
     e.fatigue += 0.1 * dt;
     const s = this.state;
 
@@ -1002,7 +1048,7 @@ export class Simulation {
       return;
     }
 
-    if (e.hunger <= -30) {
+    if (e.hunger <= -20) {
       e.hp -= 2 * dt;
       if (e.hp <= 0) {
         e.state = 'dead';

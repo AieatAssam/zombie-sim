@@ -57,18 +57,27 @@ export class Renderer3D {
   // Road markings
   private roadMarkings: THREE.Line[] = [];
 
-  // Shoot tracer lines
+  // Shoot tracer lines with per-tracer fade metadata
   private tracers: THREE.Line[] = [];
 
   // Blood decals
   private bloodDecals: THREE.Mesh[] = [];
   private decalCount = 0;
 
+  // Corpse/skeleton system
+  private corpseGroups: THREE.Group[] = [];
+  private corpseTimers: number[] = [];
+  private previousAliveZombieIds: Set<number> = new Set();
+
   // Screen shake
   private shakeIntensity = 0;
   private shakeDuration = 0;
   private shakeTimer = 0;
   private originalCamPos = new THREE.Vector3();
+
+  // Starving civilians shake offset tracking
+  private starvingShakeOffsets: Map<number, number> = new Map();
+  private starvingExclamationSprites: Map<number, THREE.Sprite> = new Map();
 
   // Entity geometry caches
   private civilianGeom: THREE.BufferGeometry;
@@ -252,9 +261,9 @@ export class Renderer3D {
     this.scene.add(this.nightOverlay);
 
     // ─── Entity geometry cache ───
-    this.civilianGeom = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 6);
-    this.civilianHeadGeom = new THREE.SphereGeometry(0.18, 6, 6);
-    this.zombieGeom = new THREE.ConeGeometry(0.35, 0.75, 5);
+    this.civilianGeom = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 8);
+    this.civilianHeadGeom = new THREE.SphereGeometry(0.18, 8, 8);
+    this.zombieGeom = new THREE.ConeGeometry(0.35, 0.75, 7);
     this.militaryGeom = new THREE.BoxGeometry(0.45, 0.6, 0.45);
     this.antennaGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.2, 3);
     this.noAmmoIndicatorGeom = new THREE.ConeGeometry(0.08, 0.12, 3);
@@ -332,7 +341,8 @@ export class Renderer3D {
   buildCity(state: SimulationState): void {
     this.clearMeshes();
 
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.8, metalness: 0.1 });
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.9, metalness: 0.15 });
+    const roadEdgeMat = new THREE.MeshStandardMaterial({ color: 0x4a4a5a, roughness: 0.8, metalness: 0.1 });
     for (const r of state.map.roads) {
       const geom = new THREE.PlaneGeometry(r.w * 0.95, r.d * 0.95);
       const mesh = new THREE.Mesh(geom, roadMat);
@@ -343,16 +353,16 @@ export class Renderer3D {
       this.roadMeshes.push(mesh);
     }
 
-    // Road center markings
-    const dashMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.15 });
+    // Road center markings with higher detail
+    const dashMat = new THREE.LineBasicMaterial({ color: 0xddddaa, transparent: true, opacity: 0.25 });
     for (const r of state.map.roads) {
       if (r.w > 2.8 || r.d > 2.8) {
         const isHorizontal = r.w > r.d;
         const len = isHorizontal ? r.w : r.d;
-        const segments = Math.floor(len / 0.8);
+        const segments = Math.floor(len / 0.6);
         for (let s = 0; s < segments; s += 2) {
-          const start = -len / 2 + s * 0.8;
-          const end = start + 0.4;
+          const start = -len / 2 + s * 0.6;
+          const end = start + 0.35;
           const pts: THREE.Vector3[] = [];
           if (isHorizontal) {
             pts.push(new THREE.Vector3(r.x + start, 0.03, r.z));
@@ -406,14 +416,20 @@ export class Renderer3D {
     // Buildings
     for (const b of state.buildings) {
       const col = new THREE.Color(b.color);
+      // Subtle color variation per building of same type (±10%)
+      const variation = 0.9 + Math.random() * 0.2;
+      col.r = Math.min(1, col.r * variation);
+      col.g = Math.min(1, col.g * variation);
+      col.b = Math.min(1, col.b * variation);
+      const roughnessVar = 0.5 + Math.random() * 0.5;
       const mat = new THREE.MeshStandardMaterial({
         color: col,
-        roughness: 0.7,
+        roughness: roughnessVar,
         metalness: b.type === 'police' ? 0.4 : 0.1,
         emissive: b.type === 'police' ? new THREE.Color(0x224466) : new THREE.Color(0x000000),
         emissiveIntensity: b.type === 'police' ? 0.15 : 0,
       });
-      const geom = new THREE.BoxGeometry(b.w, b.h, b.d);
+      const geom = new THREE.BoxGeometry(b.w, b.h, b.d, 2, 2, 2);
       const mesh = new THREE.Mesh(geom, mat);
       mesh.position.set(b.x, b.h / 2, b.z);
       mesh.castShadow = true;
@@ -523,43 +539,41 @@ export class Renderer3D {
         this.specialBuildingLights.push(mark);
       }
 
-      // Windows with glow at night
+      // Windows with glow at night — 4 sides, more windows
       const hasWindows = b.type !== 'warehouse';
       if (hasWindows) {
-        const winCountX = Math.max(1, Math.floor(b.w / 0.8));
-        const winCountZ = Math.max(1, Math.floor(b.d / 0.8));
-        for (let wy = 0.5; wy < b.h - 0.2; wy += 0.7) {
-          for (let wi = 0; wi < winCountX + winCountZ; wi++) {
-            let wx, wz;
-            const onXSide = wi < winCountX;
-            const idx = onXSide ? wi : wi - winCountX;
-            if (onXSide) {
-              wx = b.x - b.w / 2 + (idx + 0.5) * (b.w / winCountX);
-              wz = b.z + b.d / 2 + 0.02;
-            } else {
-              wx = b.x + b.w / 2 + 0.02;
-              wz = b.z - b.d / 2 + (idx + 0.5) * (b.d / winCountZ);
+        const winCountX = Math.max(2, Math.floor(b.w / 0.6));
+        const winCountZ = Math.max(2, Math.floor(b.d / 0.6));
+        for (let wy = 0.4; wy < b.h - 0.2; wy += 0.6) {
+          // 4 sides: 0=front(+Z), 1=back(-Z), 2=left(-X), 3=right(+X)
+          const sides = [
+            { count: winCountX, getPos: (i: number) => ({ wx: b.x - b.w / 2 + (i + 0.5) * (b.w / winCountX), wz: b.z + b.d / 2 + 0.02, rotY: 0 }) },
+            { count: winCountX, getPos: (i: number) => ({ wx: b.x - b.w / 2 + (i + 0.5) * (b.w / winCountX), wz: b.z - b.d / 2 - 0.02, rotY: Math.PI }) },
+            { count: winCountZ, getPos: (i: number) => ({ wx: b.x - b.w / 2 - 0.02, wz: b.z - b.d / 2 + (i + 0.5) * (b.d / winCountZ), rotY: -Math.PI / 2 }) },
+            { count: winCountZ, getPos: (i: number) => ({ wx: b.x + b.w / 2 + 0.02, wz: b.z - b.d / 2 + (i + 0.5) * (b.d / winCountZ), rotY: Math.PI / 2 }) },
+          ];
+          for (const side of sides) {
+            for (let wi = 0; wi < side.count; wi++) {
+              const { wx, wz, rotY } = side.getPos(wi);
+              const winMat = new THREE.MeshStandardMaterial({
+                color: 0x88aaff,
+                emissive: 0x88ccff,
+                emissiveIntensity: 0.1,
+                transparent: true,
+                opacity: 0.3,
+              });
+              const win = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.25), winMat);
+              win.position.set(wx, wy, wz);
+              win.rotation.y = rotY;
+              this.scene.add(win);
+              this.windowGlows.push({
+                mesh: win,
+                baseEmissive: 0.1 + Math.random() * 0.3,
+                x: b.x,
+                z: b.z,
+                buildingId: b.id,
+              });
             }
-            const winMat = new THREE.MeshStandardMaterial({
-              color: 0x88aaff,
-              emissive: 0x88ccff,
-              emissiveIntensity: 0.1,
-              transparent: true,
-              opacity: 0.3,
-            });
-            const win = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.3), winMat);
-            win.position.set(wx, wy, wz);
-            if (!onXSide) {
-              win.rotation.y = Math.PI / 2;
-            }
-            this.scene.add(win);
-            this.windowGlows.push({
-              mesh: win,
-              baseEmissive: 0.1 + Math.random() * 0.3,
-              x: b.x,
-              z: b.z,
-              buildingId: b.id,
-            });
           }
         }
       }
@@ -623,6 +637,20 @@ export class Renderer3D {
       sprite.material.dispose();
     }
     this.buildingLabelSprites.clear();
+
+    // Clear corpses
+    for (const g of this.corpseGroups) {
+      this.scene.remove(g);
+      g.traverse(child => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
+    }
+    this.corpseGroups = [];
+    this.corpseTimers = [];
+    this.previousAliveZombieIds.clear();
   }
 
   /**
@@ -750,6 +778,40 @@ export class Renderer3D {
       }
     }
 
+    // ─── Update corpse timers, fade opacity, remove expired ───
+    for (let i = this.corpseGroups.length - 1; i >= 0; i--) {
+      this.corpseTimers[i] -= dt;
+      const lifeFrac = Math.max(0, this.corpseTimers[i] / 20);
+      if (lifeFrac <= 0) {
+        const group = this.corpseGroups[i];
+        this.scene.remove(group);
+        group.traverse(child => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            (child.material as THREE.Material).dispose();
+          }
+        });
+        this.corpseGroups.splice(i, 1);
+        this.corpseTimers.splice(i, 1);
+      } else {
+        // Fade opacity based on remaining life: stay visible for first half, then fade
+        const group = this.corpseGroups[i];
+        const fadeStart = 0.3; // start fading when 30% life remaining
+        const opacity = lifeFrac > fadeStart ? 1 : lifeFrac / fadeStart;
+        group.traverse(child => {
+          if (child instanceof THREE.Mesh) {
+            const mat = child.material as THREE.MeshBasicMaterial;
+            if (mat) {
+              mat.opacity = Math.max(0, opacity * ((child.userData.baseOpacity as number) || 1));
+            }
+          }
+        });
+        // Scale down slightly as corpse decays
+        const decayScale = 0.7 + lifeFrac * 0.3;
+        group.scale.set(decayScale, decayScale, decayScale);
+      }
+    }
+
     // ─── Handle shot events ───
     for (const ev of state.events) {
       if (ev.text.startsWith('SHOT:')) {
@@ -791,9 +853,17 @@ export class Renderer3D {
   }
 
   private updateBuildingLabels(buildingOccupants: Map<number, number>, state: SimulationState): void {
+    // Track all buildings that have civilian occupants (hiding or sleeping inside)
+    const allOccupiedBuildings = new Map<number, number>();
+    for (const e of state.entities) {
+      if (e.type === 'civilian' && e.state !== 'dead' && e.buildingId !== null) {
+        allOccupiedBuildings.set(e.buildingId, (allOccupiedBuildings.get(e.buildingId) || 0) + 1);
+      }
+    }
+
     // Remove labels for buildings with no occupants
     for (const [bId, sprite] of this.buildingLabelSprites.entries()) {
-      if (!buildingOccupants.has(bId)) {
+      if (!allOccupiedBuildings.has(bId)) {
         this.scene.remove(sprite);
         if (sprite.material.map) sprite.material.map.dispose();
         sprite.material.dispose();
@@ -801,8 +871,8 @@ export class Renderer3D {
       }
     }
 
-    // Add/update labels for occupied buildings
-    for (const [bId, count] of buildingOccupants.entries()) {
+    // Add/update labels for ALL occupied buildings
+    for (const [bId, count] of allOccupiedBuildings.entries()) {
       const b = state.buildings.find(b => b.id === bId);
       if (!b) continue;
 
@@ -810,7 +880,7 @@ export class Renderer3D {
       if (!sprite) {
         // Create sprite with canvas texture
         sprite = this.createBuildingLabelSprite(count);
-        sprite.position.set(b.x, b.h + 3.0, b.z);
+        sprite.position.set(b.x, b.h + 4.5, b.z);
         this.scene.add(sprite);
         this.buildingLabelSprites.set(bId, sprite);
       } else {
@@ -830,8 +900,8 @@ export class Renderer3D {
 
   private createBuildingLabelSprite(count: number): THREE.Sprite {
     const canvas = document.createElement('canvas');
-    canvas.width = 128;
-    canvas.height = 128;
+    canvas.width = 256;
+    canvas.height = 256;
     const ctx = canvas.getContext('2d')!;
     this.drawBuildingLabel(ctx, count);
 
@@ -844,32 +914,39 @@ export class Renderer3D {
       sizeAttenuation: true,
     });
     const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(3.0, 3.0, 1);
+    sprite.scale.set(5.0, 5.0, 1);
     return sprite;
   }
 
   private drawBuildingLabel(ctx: CanvasRenderingContext2D, count: number): void {
-    ctx.clearRect(0, 0, 128, 128);
+    ctx.clearRect(0, 0, 256, 256);
 
     // Background circle
     ctx.fillStyle = 'rgba(0,0,0,0.75)';
     ctx.beginPath();
-    ctx.arc(64, 64, 50, 0, Math.PI * 2);
+    ctx.arc(128, 128, 100, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.strokeStyle = '#ffdd44';
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.arc(64, 64, 50, 0, Math.PI * 2);
+    ctx.arc(128, 128, 100, 0, Math.PI * 2);
     ctx.stroke();
+
+    // Person emoji icon above count
+    ctx.font = 'bold 48px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffdd44';
+    ctx.fillText('🧑', 128, 75);
 
     // Count text with thick black outline for readability
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 48px monospace';
+    ctx.font = 'bold 96px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 6;
     ctx.strokeText(String(count), 64, 64);
     ctx.fillText(String(count), 64, 64);
   }
@@ -888,6 +965,16 @@ export class Renderer3D {
       }
 
       group.position.set(e.x, 0, e.z);
+
+      // ─── Starving civilian shake/vibration ───
+      if (e.type === 'civilian' && e.state === 'starving') {
+        const shakeIntensity = 0.03;
+        const shakeX = Math.sin(time * 15 + e.id * 7) * shakeIntensity;
+        const shakeZ = Math.cos(time * 13 + e.id * 11) * shakeIntensity;
+        group.position.x += shakeX;
+        group.position.z += shakeZ;
+      }
+
       const col = new THREE.Color(e.color);
 
       // Update material colors and state indicators
@@ -895,7 +982,7 @@ export class Renderer3D {
         if (child instanceof THREE.Mesh) {
           const mat = child.material as THREE.MeshStandardMaterial;
 
-          // ─── State indicator: starving (orange cone above head) ───
+          // ─── State indicator: starving (orange cone above head + red ! sprite) ───
           if (child.userData.isStarving) {
             if (e.state === 'starving') {
               child.visible = true;
@@ -905,6 +992,16 @@ export class Renderer3D {
               // Subtle pulsing orange glow on top of blue body
               const glowScale = 0.9 + Math.sin(time * 4 + e.id) * 0.1;
               child.scale.set(glowScale, glowScale, glowScale);
+            } else {
+              child.visible = false;
+            }
+          } else if (child.userData.isStarvingBang) {
+            if (e.state === 'starving') {
+              child.visible = true;
+              const bangMat = child.material as THREE.SpriteMaterial;
+              bangMat.opacity = 0.5 + Math.sin(time * 5 + e.id * 2) * 0.4;
+              const pulseScale = 0.8 + Math.sin(time * 6 + e.id * 3) * 0.15;
+              child.scale.set(pulseScale * 0.3, pulseScale * 0.3, 1);
             } else {
               child.visible = false;
             }
@@ -979,9 +1076,14 @@ export class Renderer3D {
       });
     }
 
-    // Remove dead entity meshes
+    // Remove dead entity meshes — detect zombie deaths and create corpses
     for (const [id, group] of this.entityMeshes.entries()) {
       if (!currentIds.has(id)) {
+        const entityType = group.userData.entityType;
+        // Create a corpse if this was a zombie that died
+        if (entityType === 'zombie') {
+          this.createCorpse(group.position.x, group.position.z);
+        }
         this.scene.remove(group);
         group.traverse(child => {
           if (child instanceof THREE.Mesh) {
@@ -996,6 +1098,8 @@ export class Renderer3D {
 
   private createEntityMesh(e: Entity): THREE.Group {
     const group = new THREE.Group();
+    group.userData.entityType = e.type;
+    group.userData.entityId = e.id;
     const col = new THREE.Color(e.color);
 
     if (e.type === 'civilian') {
@@ -1034,6 +1138,34 @@ export class Renderer3D {
       starvingMesh.userData.isStarving = true;
       starvingMesh.visible = false;
       group.add(starvingMesh);
+
+      // Pulsing red "!" sprite for starving civilians
+      const bangCanvas = document.createElement('canvas');
+      bangCanvas.width = 32;
+      bangCanvas.height = 32;
+      const bangCtx = bangCanvas.getContext('2d')!;
+      bangCtx.fillStyle = '#ff0000';
+      bangCtx.beginPath();
+      bangCtx.arc(16, 16, 14, 0, Math.PI * 2);
+      bangCtx.fill();
+      bangCtx.fillStyle = '#ffffff';
+      bangCtx.font = 'bold 24px sans-serif';
+      bangCtx.textAlign = 'center';
+      bangCtx.textBaseline = 'middle';
+      bangCtx.fillText('!', 16, 17);
+      const bangTex = new THREE.CanvasTexture(bangCanvas);
+      const bangMat = new THREE.SpriteMaterial({
+        map: bangTex,
+        transparent: true,
+        depthTest: false,
+        sizeAttenuation: true,
+        opacity: 0,
+      });
+      const bangSprite = new THREE.Sprite(bangMat);
+      bangSprite.position.set(0, 0.95, 0);
+      bangSprite.scale.set(0.3, 0.3, 1);
+      bangSprite.userData.isStarvingBang = true;
+      group.add(bangSprite);
 
     } else if (e.type === 'zombie') {
       const bodyMat = new THREE.MeshStandardMaterial({
@@ -1178,13 +1310,11 @@ export class Renderer3D {
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const tracer = this.tracers[i];
       const mat = tracer.material as (THREE.LineBasicMaterial | THREE.LineDashedMaterial);
-      const opacity = mat.opacity;
-      if (opacity <= 0) {
+      mat.opacity -= dt * (tracer.userData.fadeRate || 3);
+      if (mat.opacity <= 0) {
         this.scene.remove(tracer);
         tracer.geometry.dispose();
         this.tracers.splice(i, 1);
-      } else {
-        mat.opacity -= dt * 3;
       }
     }
   }
@@ -1210,9 +1340,9 @@ export class Renderer3D {
   spawnTracer(fromX: number, fromZ: number, toX: number, toZ: number, hit: boolean): void {
     let line: THREE.Line;
     if (hit) {
-      // Solid red line for HIT
+      // Solid bright red line for HIT — fade over 2 seconds
       const lineMat = new THREE.LineBasicMaterial({
-        color: 0xff3333,
+        color: 0xff2222,
         transparent: true,
         opacity: 1.0,
         linewidth: 2,
@@ -1223,11 +1353,12 @@ export class Renderer3D {
       ];
       const geom = new THREE.BufferGeometry().setFromPoints(points);
       line = new THREE.Line(geom, lineMat);
+      line.userData.fadeRate = 0.5; // fade over 2 seconds
       this.addBloodDecal(toX, toZ);
     } else {
-      // Dashed red line for MISS
+      // Dashed lighter red line for MISS — fade over 1.5 seconds
       const lineMat = new THREE.LineDashedMaterial({
-        color: 0xff6666,
+        color: 0xff8888,
         transparent: true,
         opacity: 1.0,
         dashSize: 0.5,
@@ -1240,6 +1371,7 @@ export class Renderer3D {
       ];
       const geom = new THREE.BufferGeometry().setFromPoints(points);
       line = new THREE.Line(geom, lineMat);
+      line.userData.fadeRate = 0.667; // fade over 1.5 seconds
       line.computeLineDistances();
     }
     this.scene.add(line);
@@ -1264,6 +1396,75 @@ export class Renderer3D {
     mesh.position.set(x, 0.05, z);
     this.scene.add(mesh);
     this.bloodDecals.push(mesh);
+  }
+
+  /**
+   * Create a corpse/skeleton at the position where a zombie died.
+   * Includes body box, bone cross, and blood splat. Fades over time.
+   */
+  private createCorpse(x: number, z: number): void {
+    const group = new THREE.Group();
+
+    // Blood splat on ground
+    const splatOpacity = 0.5 + Math.random() * 0.2;
+    const splatGeom = new THREE.CircleGeometry(0.25 + Math.random() * 0.15, 8);
+    const splatMat = new THREE.MeshBasicMaterial({
+      color: 0x330000,
+      transparent: true,
+      opacity: splatOpacity,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const splat = new THREE.Mesh(splatGeom, splatMat);
+    splat.userData.baseOpacity = splatOpacity;
+    splat.rotation.x = -Math.PI / 2;
+    splat.position.set(0, 0.02, 0);
+    group.add(splat);
+
+    // Body box (torso)
+    const bodyMat = new THREE.MeshBasicMaterial({
+      color: 0xcccccc,
+      transparent: true,
+      opacity: 0.7,
+    });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.35), bodyMat);
+    body.userData.baseOpacity = 0.7;
+    body.position.set(0, 0.06, 0);
+    body.rotation.z = Math.random() * 0.1 - 0.05;
+    body.rotation.x = Math.random() * 0.1 - 0.05;
+    group.add(body);
+
+    // Skull (small sphere)
+    const skullMat = new THREE.MeshBasicMaterial({
+      color: 0xeeeeee,
+      transparent: true,
+      opacity: 0.6,
+    });
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), skullMat);
+    skull.userData.baseOpacity = 0.6;
+    skull.position.set(0, 0.12, 0.15);
+    group.add(skull);
+
+    // Bone cross (two thin boxes)
+    const boneMat = new THREE.MeshBasicMaterial({
+      color: 0xdddddd,
+      transparent: true,
+      opacity: 0.5,
+    });
+    const hBone = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.02, 0.02), boneMat);
+    hBone.userData.baseOpacity = 0.5;
+    hBone.position.set(0, 0.08, -0.05);
+    group.add(hBone);
+    const vBone = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.15), boneMat);
+    vBone.userData.baseOpacity = 0.5;
+    vBone.position.set(0, 0.08, -0.05);
+    group.add(vBone);
+
+    group.position.set(x, 0, z);
+    group.rotation.y = Math.random() * Math.PI * 2;
+    this.scene.add(group);
+    this.corpseGroups.push(group);
+    this.corpseTimers.push(18 + Math.random() * 4); // 18-22 seconds lifetime
   }
 
   reset(): void {
