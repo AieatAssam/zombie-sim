@@ -124,7 +124,7 @@ export class Simulation {
   constructor() {
     this.map = generateWorld(Date.now());
     this.state = this.createInitialState(this.map);
-    this.logEvent('🧬 Outbreak detected in the city. Patient zero active.', 'warning');
+    this.logEvent(`🧬 Outbreak detected. ${initialZombies} infected active.`, 'warning');
     this.logEvent('🏙️ Population: 400. Military expected in 48 hours.', 'info');
   }
 
@@ -147,11 +147,14 @@ export class Simulation {
       }
     }
 
-    // Patient zero
-    let zx = (Math.random() - 0.5) * 15;
-    let zz = (Math.random() - 0.5) * 15;
-    if (isInsideBuilding(map.buildings, zx, zz)) { zx -= 4; zz -= 4; }
-    entities.push(this.createZombie(zx, zz));
+    // Patient zero — start with 2-3 zombies for a faster outbreak start
+    const initialZombies = 2 + Math.floor(Math.random() * 2);
+    for (let zi = 0; zi < initialZombies; zi++) {
+      let zx = (Math.random() - 0.5) * 20;
+      let zz = (Math.random() - 0.5) * 20;
+      if (isInsideBuilding(map.buildings, zx, zz)) { zx -= 5; zz -= 5; }
+      entities.push(this.createZombie(zx, zz));
+    }
 
     return {
       entities,
@@ -159,7 +162,7 @@ export class Simulation {
       timeOfDay: 0.08,
       day: 1,
       totalTime: 0,
-      stats: { civilians: civilianCount, zombies: 1, military: 0, zombiesKilledByMilitary: 0, civiliansTurned: 0, civiliansStarved: 0, dead: 0, totalBorn: 0, totalInfected: 0, totalKilled: 0, foodSupply: 100 },
+      stats: { civilians: civilianCount, zombies: initialZombies, military: 0, zombiesKilledByMilitary: 0, civiliansTurned: 0, civiliansStarved: 0, dead: 0, totalBorn: 0, totalInfected: 0, totalKilled: 0, foodSupply: 100 },
       map,
       events: [],
       gameOver: false,

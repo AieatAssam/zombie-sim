@@ -498,23 +498,6 @@ export class Renderer3D {
       this.scene.add(contactShadow);
       this.buildingMeshes.push(contactShadow);
 
-      // Hospital red cross on roof
-      if (b.type === 'hospital') {
-        const crossMat = new THREE.MeshStandardMaterial({
-          color: 0xff0000,
-          emissive: 0xff0000,
-          emissiveIntensity: 0.3,
-        });
-        const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.2), crossMat);
-        hBar.position.set(b.x, b.h + 0.08, b.z);
-        this.scene.add(hBar);
-        this.buildingMeshes.push(hBar);
-        const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.8), crossMat);
-        vBar.position.set(b.x, b.h + 0.08, b.z);
-        this.scene.add(vBar);
-        this.buildingMeshes.push(vBar);
-      }
-
       // Police station light bar — enhanced with brighter glow
       if (b.type === 'police') {
         const lightMat = new THREE.MeshStandardMaterial({
