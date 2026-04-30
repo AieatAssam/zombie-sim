@@ -254,7 +254,7 @@ export class Simulation {
       type: 'military', x, z, vx: 0, vz: 0,
       state: 'patrolling', hp: 100, maxHp: 100,
       hunger: 70 + Math.random() * 30, fatigue: 10,
-      ammo: 150, maxAmmo: 150, magazineSize: 10, ammoInMag: 10, isReloading: false, reloadTimer: 0,
+      ammo: 150, maxAmmo: 150, magazineSize: 5, ammoInMag: 5, isReloading: false, reloadTimer: 0,
       attackCooldown: 0,
       targetId: null, wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: 1, sleepTimer: 0, forageTimer: 0,

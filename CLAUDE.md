@@ -11,6 +11,12 @@
 - Every time you change **balance**, update the Phase table or balance notes
 - Delete the old screenshot from the repo when replacing it
 
+### Legend MUST stay in sync
+- Every time you add/remove a **building type**, update the legend in `src/main.ts` (innerHTML string)
+- Every time you change a **building roof color**, sync the color swatch in the legend
+- Every time you change **entity visuals**, update the entity descriptions in the legend
+- Every time you change **controls**, update the legend hint text
+
 ### Screenshot must be updated for major visual changes
 - Run `cd /home/openclaw/.openclaw/workspace/zombie-sim && timeout 15 node /tmp/ss-v13c.cjs 2>&1` (or equivalent) to capture a screenshot
 - Save as `screenshot-v<N>.png` where N is the latest version number
@@ -20,9 +26,19 @@
 
 ### Always verify your work
 - Run `npm run build` and fix any TypeScript errors
+- Run `npm test` and make sure all tests pass (aim for 90%+ coverage)
 - Test the dev server starts: `npm run dev` (background)
 - Verify with: `curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/`
 - If screenshot fails (common Playwright/WebGL headless issue), note it but don't block the commit
+
+### CI/CD monitoring
+- After every push, check the GitHub Actions workflow status:
+  ```bash
+  cd /home/openclaw/.openclaw/workspace/zombie-sim && gh run view --branch master --status in_progress 2>/dev/null || echo "No running workflow"
+  gh run list --branch master --limit 3 --json conclusion,headBranch,displayTitle
+  ```
+- If CI fails, investigate and fix the issue before doing anything else
+- Common CI failures: test failures, build errors, TypeScript type errors
 
 ### Code style
 - `src/simulation.ts` — all gameplay logic
@@ -31,6 +47,7 @@
 - `src/style.css` — all styling
 - `src/world.ts` — procedural generation
 - `index.html` — shell only
+- `src/__tests__/` — Vitest unit tests
 
 ### Git workflow
 - Commit messages should be descriptive
