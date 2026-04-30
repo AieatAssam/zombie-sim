@@ -212,7 +212,7 @@ export class Simulation {
       type: 'military', x, z, vx: 0, vz: 0,
       state: 'patrolling', hp: 100, maxHp: 100,
       hunger: 70 + Math.random() * 30, fatigue: 10,
-      ammo: 150, maxAmmo: 150, magazineSize: 10, ammoInMag: 10, isReloading: false, reloadTimer: 0,
+      ammo: 150, maxAmmo: 150, magazineSize: 2, ammoInMag: 10, isReloading: false, reloadTimer: 0,
       attackCooldown: 0,
       targetId: null, wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: 1, sleepTimer: 0, forageTimer: 0,
@@ -571,21 +571,12 @@ export class Simulation {
 
     // Starvation
     if (e.hunger <= -10) {
-      e.hp -= 8 * dt;
-      if (e.hp <= 0) {
-        e.state = 'dead';
-        this.state.stats.civiliansStarved++;
-        return;
-      }
+      e.state = 'dead';
+      this.state.stats.civiliansStarved++;
+      return;
     }
 
-    // Hospital healing: regenerate HP when near a hospital
-    if (e.hp < e.maxHp) {
-      const nearHospital = findNearestBuilding(this.state.buildings, e.x, e.z, 'hospital');
-      if (nearHospital && dist(e, nearHospital) < 2) {
-        e.hp = Math.min(e.maxHp, e.hp + 5 * dt);
-      }
-    }
+
 
     // Night shelter: civilians seek buildings to sleep in
     if (isNight && e.fatigue > 60 && e.state !== 'starving' && e.state !== 'fleeing' && e.state !== 'hiding') {
@@ -754,13 +745,11 @@ export class Simulation {
         // Find nearest food building
         const foodB = this.findNearestFoodBuilding(e.x, e.z);
         if (foodB && dist(e, foodB) < 1.5) {
-          // Forage
-          const found = Math.min(foodB.food, 12 + Math.floor(Math.random() * 15));
-          if (found > 0) {
-            foodB.food -= found;
-            e.hunger = Math.min(80, e.hunger + found);
-            if (e.hunger > 40) e.state = 'wandering'; // No longer starving
-          }
+          // Entering food building clears starvation immediately
+          foodB.food -= 5;
+          e.hunger = 80;
+          e.state = 'wandering'; // No longer starving
+          this.logEventThrottled(`Civilian #${e.id} found food and is no longer starving.`, 'info', 5);
           e.wanderTimer = 1;
           e.vx *= 0.8; e.vz *= 0.8;
         } else if (foodB) {
@@ -1025,11 +1014,8 @@ export class Simulation {
           this.state.stats.civiliansTurned++;
           this.logEventThrottled(`Zombie turned civilian #${target.id} instantly!`, 'zombie', 2);
         } else if (target.type === 'military') {
-          target.hp -= 20;
-          if (target.hp <= 0) {
-            target.state = 'dead';
-            this.logEvent(`Military unit #${target.id} killed by zombie.`, 'death');
-          }
+          target.state = 'dead';
+          this.logEvent(`Military unit #${target.id} killed by zombie.`, 'death');
         }
       }
     } else {
@@ -1074,13 +1060,7 @@ export class Simulation {
       }
     }
 
-    // Hospital healing: regenerate HP when near a hospital (slower than civilians)
-    if (e.hp < e.maxHp) {
-      const nearHospital = findNearestBuilding(this.state.buildings, e.x, e.z, 'hospital');
-      if (nearHospital && dist(e, nearHospital) < 2) {
-        e.hp = Math.min(e.maxHp, e.hp + 3 * dt);
-      }
-    }
+
 
     // Sleep at night
     if (isNight && e.fatigue > 80) {

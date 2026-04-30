@@ -108,7 +108,6 @@ legendPanel.innerHTML = `
   <div class="legend-item"><span class="legend-icon legend-house"></span> 🏠 House = Shelter</div>
   <div class="legend-item"><span class="legend-icon legend-ware"></span> 🏭 Warehouse = Ammo + Food</div>
   <div class="legend-item"><span class="legend-icon legend-police"></span> 🚨 Police = Ammo (high)</div>
-  <div class="legend-item"><span class="legend-icon legend-hospital"></span> 🏥 Hospital = Heal</div>
   <div class="legend-hint">Press L to hide</div>
 `;
 document.getElementById('ui-overlay')!.appendChild(legendPanel);
