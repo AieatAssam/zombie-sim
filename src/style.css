@@ -150,7 +150,7 @@ html, body {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  max-width: 500px;
+  max-width: 600px;
 }
 .stat-box {
   background: rgba(0,0,0,0.75);
@@ -164,7 +164,6 @@ html, body {
   backdrop-filter: blur(8px);
   transition: all 0.3s ease;
 }
-/* Glowing border when zombie count spikes */
 .stat-box.zombie-alert {
   border-color: #44ff44;
   box-shadow: 0 0 12px rgba(68,255,68,0.3);
@@ -198,6 +197,9 @@ html, body {
 .military-stat .stat-value { color: #ff4444; }
 .total-stat .stat-value { color: #ff8800; }
 .food-stat .stat-value { color: #ffdd44; }
+.ammo-stat .stat-value { color: #ff8844; }
+.chaos-stat .stat-value { color: var(--chaos-color, #ffaa00); }
+.starving-stat .stat-value { color: #ff6600; }
 
 .speed-control {
   margin-top: 8px;
@@ -285,7 +287,7 @@ html, body {
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 6px;
   padding: 6px 10px;
-  width: 300px;
+  width: 400px;
   height: 160px;
   backdrop-filter: blur(8px);
   overflow: hidden;
@@ -338,6 +340,66 @@ html, body {
   border-radius: 4px;
   width: 400px;
   height: 140px;
+}
+
+/* ─── LEGEND PANEL ─── */
+#legend-panel {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  z-index: 15;
+  background: rgba(0,0,0,0.8);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 10px 14px;
+  backdrop-filter: blur(10px);
+  font-size: 11px;
+  color: #ccc;
+  pointer-events: none;
+  min-width: 160px;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.3s, transform 0.3s;
+}
+#legend-panel.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.legend-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffdd44;
+  margin-bottom: 6px;
+  letter-spacing: 1px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.8;
+}
+.legend-icon {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.legend-civ { background: #4da6ff; }
+.legend-zom { background: #44ff44; box-shadow: 0 0 6px #44ff44; }
+.legend-mil { background: #ff4444; }
+.legend-inf { background: #88ff44; }
+.legend-starve { background: #ff6600; }
+.legend-noammo { background: transparent; font-size: 12px; }
+.legend-shop { background: #CD853F; }
+.legend-ware { background: #8E8E8E; }
+.legend-hospital { background: #8B4513; }
+.legend-police { background: #2C3E50; border: 1px solid #4488ff; }
+.legend-hint {
+  margin-top: 6px;
+  font-size: 9px;
+  color: #666;
+  text-align: center;
 }
 
 /* ─── Game Over ─── */
@@ -420,4 +482,5 @@ html, body {
   #chart-container { bottom: 10px; right: 10px; }
   #pop-chart { width: 240px; height: 90px; }
   .gameover-box { font-size: 20px; padding: 20px 30px; }
+  #legend-panel { font-size: 10px; min-width: 130px; }
 }

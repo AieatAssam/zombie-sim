@@ -17,23 +17,28 @@ const statZom = document.getElementById('stat-zombies')!;
 const statMil = document.getElementById('stat-military')!;
 const statDead = document.getElementById('stat-dead')!;
 const statFood = document.getElementById('stat-food')!;
+const statAmmo = document.getElementById('stat-ammo')!;
+const statChaos = document.getElementById('stat-chaos')!;
+const statStarving = document.getElementById('stat-starving')!;
 const speedSlider = document.getElementById('speed-slider') as HTMLInputElement;
 const speedDisplay = document.getElementById('speed-display')!;
 const btnPause = document.getElementById('btn-pause')!;
 const btnReset = document.getElementById('btn-reset')!;
 const btnCamera = document.getElementById('btn-camera')!;
 const eventList = document.getElementById('event-list')!;
-// These are created dynamically below — will be set after creation
 let notificationContainer: HTMLElement;
 let dangerOverlay: HTMLElement;
 let firstInfectionFlash: HTMLElement;
 let entityPopup: HTMLElement;
 let gameOverDiv: HTMLElement;
+let legendPanel: HTMLElement;
 
 let paused = false;
 let speed = 1;
 let cameraMode: 'orbit' | 'top' | 'close' = 'orbit';
 let lastProcessedEvents = new Set<string>();
+let legendVisible = true;
+let legendTimer = 0;
 
 // ─── Slow-motion tracking ───
 let slowMoActive = false;
@@ -81,6 +86,25 @@ entityPopup = document.createElement('div');
 entityPopup.id = 'entity-popup';
 document.getElementById('ui-overlay')!.appendChild(entityPopup);
 
+// ─── Add legend panel ───
+legendPanel = document.createElement('div');
+legendPanel.id = 'legend-panel';
+legendPanel.innerHTML = `
+  <div class="legend-title">📋 LEGEND</div>
+  <div class="legend-item"><span class="legend-icon legend-civ"></span> Civilian (blue)</div>
+  <div class="legend-item"><span class="legend-icon legend-zom"></span> Zombie (green)</div>
+  <div class="legend-item"><span class="legend-icon legend-mil"></span> Military (red)</div>
+  <div class="legend-item"><span class="legend-icon legend-inf"></span> Infected (yellow)</div>
+  <div class="legend-item"><span class="legend-icon legend-starve"></span> Starving (orange)</div>
+  <div class="legend-item"><span class="legend-icon legend-noammo"></span> Out of Ammo (🚫)</div>
+  <div class="legend-item"><span class="legend-icon legend-shop"></span> Shop (food)</div>
+  <div class="legend-item"><span class="legend-icon legend-ware"></span> Warehouse (ammo)</div>
+  <div class="legend-item"><span class="legend-icon legend-hospital"></span> Hospital</div>
+  <div class="legend-item"><span class="legend-icon legend-police"></span> Police Station</div>
+  <div class="legend-hint">Press L to toggle</div>
+`;
+document.getElementById('ui-overlay')!.appendChild(legendPanel);
+
 // ─── Add keyframe styles ───
 const styleSheet = document.createElement('style');
 styleSheet.textContent = `
@@ -92,6 +116,11 @@ styleSheet.textContent = `
   @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
   @keyframes gameOverAppear { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   @keyframes eventFadeIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes chaosPulse { 0%,100% { opacity: 0.3; } 50% { opacity: 0.8; } }
+  @keyframes scrollText {
+    0% { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
+  }
 `;
 document.head.appendChild(styleSheet);
 
@@ -120,7 +149,6 @@ function drawChart(): void {
     if (total > maxPop) maxPop = total;
   }
 
-  // Grid
   chartCtx.strokeStyle = 'rgba(255,255,255,0.04)';
   chartCtx.lineWidth = 1;
   for (let i = 0; i < 4; i++) {
@@ -130,7 +158,6 @@ function drawChart(): void {
 
   const drawLine = (data: number[], color: string, fill = false) => {
     if (data.length < 2) return;
-    let lastX = -1;
     const margin = { top: 8, bottom: 12, left: 8, right: 8 };
     const w = CHART_W - margin.left - margin.right;
     const h = CHART_H - margin.top - margin.bottom;
@@ -167,7 +194,6 @@ function drawChart(): void {
   drawLine(hist.map(h => h.civilians), '#4da6ff', true);
   drawLine(hist.map(h => h.military), '#ff4444', false);
 
-  // Labels
   chartCtx.fillStyle = '#555';
   chartCtx.font = '8px monospace';
   chartCtx.textAlign = 'left';
@@ -200,7 +226,6 @@ function showNotification(text: string, type: string): void {
   div.className = `notification ${type}`;
   div.textContent = text;
   notificationContainer.appendChild(div);
-  // Remove after animation
   setTimeout(() => {
     if (div.parentNode) notificationContainer.removeChild(div);
   }, 3500);
@@ -208,7 +233,6 @@ function showNotification(text: string, type: string): void {
 
 // ─── Milestone checking ───
 function checkMilestones(stats: { civilians: number; zombies: number; military: number; dead: number }): void {
-  // Zombie milestones
   if (stats.zombies > 0 && !milestonesShown.has('first-zombie')) {
     milestonesShown.add('first-zombie');
     showNotification('🧟 First zombie spotted!', 'zombie');
@@ -228,8 +252,6 @@ function checkMilestones(stats: { civilians: number; zombies: number; military: 
     showNotification('☠️ 200+ zombies! Extinction imminent!', 'death');
     renderer.shake(0.8, 1.0);
   }
-
-  // Civilian milestones
   if (stats.civilians <= 50 && stats.civilians > 0 && !milestonesShown.has('civ-50')) {
     milestonesShown.add('civ-50');
     showNotification('⚠️ Only 50 civilians remain!', 'death');
@@ -239,8 +261,6 @@ function checkMilestones(stats: { civilians: number; zombies: number; military: 
     showNotification('🆘 Only 10 civilians left!', 'death');
     renderer.shake(0.4, 0.6);
   }
-
-  // Survival milestones
   const day = sim.state.day;
   if (day >= 5 && !milestonesShown.has('day-5')) {
     milestonesShown.add('day-5');
@@ -262,14 +282,12 @@ function gameLoop(time: number): void {
   const rawDt = Math.min((time - lastTime) / 1000, 0.05);
   lastTime = time;
 
-  // Handle slow-motion
   let effectiveSpeed = speed;
   if (slowMoActive) {
     slowMoTimer -= rawDt;
     effectiveSpeed = speed * SLOW_MO_FACTOR;
     if (slowMoTimer <= 0) {
       slowMoActive = false;
-      // Ramp up speed back to normal
       effectiveSpeed = speed;
       firstInfectionFlash.classList.remove('active');
     }
@@ -284,7 +302,6 @@ function gameLoop(time: number): void {
   const currentInfected = sim.state.stats.totalInfected;
   if (currentInfected > 0 && !firstInfectionShown) {
     firstInfectionShown = true;
-    // Trigger slow-motion
     if (!slowMoActive && !paused) {
       slowMoActive = true;
       slowMoTimer = SLOW_MO_DURATION;
@@ -294,21 +311,15 @@ function gameLoop(time: number): void {
     }
   }
 
-  // ─── Check for spikes and outbreaks ───
   const stats = sim.state.stats;
-
-  // Detect large zombie spike for camera auto-focus
   const zombieDelta = stats.zombies - prevZombieCount;
   if (zombieDelta > 3 && !slowMoActive) {
-    // Find a zombie to focus on (if in orbit mode)
     const zombies = sim.state.entities.filter(e => e.type === 'zombie' && e.state !== 'dead');
     if (zombies.length > 0 && cameraMode === 'orbit') {
-      // Just shake, don't disrupt camera too much
       renderer.shake(Math.min(0.2, zombieDelta * 0.02), 0.3);
     }
   }
 
-  // Detect civilian deaths for shake
   const civDelta = prevCivilianCount - stats.civilians;
   if (civDelta > 5) {
     renderer.shake(Math.min(0.5, civDelta * 0.05), 0.5);
@@ -317,8 +328,6 @@ function gameLoop(time: number): void {
 
   prevZombieCount = stats.zombies;
   prevCivilianCount = stats.civilians;
-
-  // ─── Check milestones ───
   checkMilestones(stats);
 
   // ─── Danger overlay ───
@@ -338,7 +347,6 @@ function gameLoop(time: number): void {
       box.className = 'gameover-box';
       if (sim.state.gameOverReason.includes('SAVED') || sim.state.gameOverReason.includes('eliminated')) {
         box.classList.add('win');
-        // Show victory notification
         showNotification('🎉 CITY SAVED! Zombies eliminated!', 'info');
       }
     }
@@ -354,9 +362,29 @@ function gameLoop(time: number): void {
   statCiv.textContent = String(stats.civilians);
   statZom.textContent = String(stats.zombies);
   statMil.textContent = String(stats.military);
-  // FIX: Use stats.dead directly
   statDead.textContent = String(stats.dead);
   statFood.textContent = `${stats.foodSupply}%`;
+
+  // Ammo HUD
+  if (statAmmo) statAmmo.textContent = String(sim.state.totalAmmoRemaining);
+
+  // Chaos meter
+  if (statChaos) {
+    const chaos = sim.state.chaosLevel;
+    statChaos.textContent = `${chaos}%`;
+    (statChaos.parentElement as HTMLElement)?.style.setProperty('--chaos-color',
+      chaos > 70 ? '#ff4444' : chaos > 40 ? '#ffaa00' : '#44ff44');
+  }
+
+  // Starving count
+  if (statStarving) statStarving.textContent = String(sim.state.starvingCount);
+
+  // ─── Legend auto-hide ───
+  legendTimer += rawDt;
+  if (legendTimer > 8 && legendVisible) {
+    legendVisible = false;
+    legendPanel.classList.remove('visible');
+  }
 
   // ─── Stat box alerts ───
   const zombieBox = document.querySelector('.zombie-stat') as HTMLElement;
@@ -370,8 +398,6 @@ function gameLoop(time: number): void {
 
   updateEvents();
   drawChart();
-
-  // ─── Render 3D ───
   renderer.update(sim.state, rawDt);
 
   requestAnimationFrame(gameLoop);
@@ -424,7 +450,6 @@ btnCamera.addEventListener('click', () => {
     renderer.camera.position.set(40, 35, 40);
   }
   renderer.controls.target.copy(target);
-  // Clear shake original position
 });
 
 // Keyboard
@@ -435,11 +460,36 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'r' || e.key === 'R') btnReset.click();
   if (e.key === 'c' || e.key === 'C') btnCamera.click();
+
+  // Legend toggle
+  if (e.key === 'l' || e.key === 'L') {
+    legendVisible = !legendVisible;
+    legendPanel.classList.toggle('visible', legendVisible);
+    legendTimer = 0; // Reset timer when manually toggled
+  }
+
   const num = parseInt(e.key);
   if (num >= 1 && num <= 9) {
     speed = num; speedSlider.value = String(num); speedDisplay.textContent = `${num}x`;
   }
   if (e.key === '0') { speed = 10; speedSlider.value = '10'; speedDisplay.textContent = '10x'; }
+
+  // Arrow key panning
+  const panAmount = 2;
+  if (e.key === 'ArrowUp') {
+    renderer.controls.target.y += panAmount;
+  }
+  if (e.key === 'ArrowDown') {
+    renderer.controls.target.y -= panAmount;
+  }
+  if (e.key === 'ArrowLeft') {
+    renderer.controls.target.x -= panAmount;
+    renderer.camera.position.x -= panAmount;
+  }
+  if (e.key === 'ArrowRight') {
+    renderer.controls.target.x += panAmount;
+    renderer.camera.position.x += panAmount;
+  }
 });
 
 // ─── Click-to-inspect ───
@@ -453,7 +503,6 @@ renderer.renderer.domElement.addEventListener('click', (event: MouseEvent) => {
 
   raycasterLocal.setFromCamera(mouseLocal, renderer.camera);
 
-  // Get all entity groups
   const objects: THREE.Object3D[] = [];
   for (const group of renderer['entityMeshes'].values()) {
     objects.push(group);
@@ -463,13 +512,11 @@ renderer.renderer.domElement.addEventListener('click', (event: MouseEvent) => {
 
   if (intersects.length > 0) {
     const hitObject = intersects[0].object;
-    // Walk up to find the group
     let group: THREE.Object3D = hitObject;
     while (group.parent && group.parent.type !== 'Scene') {
       group = group.parent;
     }
 
-    // Find entity by mesh
     let foundId: number | null = null;
     for (const [id, g] of renderer['entityMeshes'].entries()) {
       if (g === group || g === group.parent) {
@@ -487,20 +534,25 @@ renderer.renderer.domElement.addEventListener('click', (event: MouseEvent) => {
     }
   }
 
-  // Click anywhere else hides popup
   entityPopup.classList.remove('active');
 });
 
-function showEntityPopup(entity: { id: number; type: string; hp: number; maxHp: number; state: string; kills?: number; ammo?: number }, x: number, y: number): void {
+function showEntityPopup(entity: { id: number; type: string; hp: number; maxHp: number; state: string; kills?: number; ammo?: number; ammoInMag?: number; isReloading?: boolean; hunger?: number }, x: number, y: number): void {
   const typeLabel = entity.type.charAt(0).toUpperCase() + entity.type.slice(1);
   let html = `<div class="popup-title" style="color: ${entity.type === 'zombie' ? '#44ff44' : entity.type === 'military' ? '#ff4444' : '#4da6ff'}">${typeLabel} #${entity.id}</div>`;
   html += `<div class="popup-row"><span class="label">HP</span><span class="value">${Math.round(entity.hp)}/${entity.maxHp}</span></div>`;
   html += `<div class="popup-row"><span class="label">State</span><span class="value">${entity.state}</span></div>`;
-  if (entity.type === 'military' && entity.kills !== undefined) {
-    html += `<div class="popup-row"><span class="label">Kills</span><span class="value">${entity.kills}</span></div>`;
+  if (entity.type === 'military') {
+    const kills = (entity as any).kills || 0;
+    html += `<div class="popup-row"><span class="label">Kills</span><span class="value">${kills}</span></div>`;
+    const ammoInMag = (entity as any).ammoInMag ?? 0;
+    const ammo = (entity as any).ammo ?? 0;
+    const reloading = (entity as any).isReloading ? 'RELOADING' : `${ammoInMag}/${ammo}`;
+    html += `<div class="popup-row"><span class="label">Ammo</span><span class="value">${reloading}</span></div>`;
   }
-  if (entity.type === 'military' && entity.ammo !== undefined) {
-    html += `<div class="popup-row"><span class="label">Ammo</span><span class="value">${entity.ammo}</span></div>`;
+  if (entity.type === 'civilian') {
+    const hunger = (entity as any).hunger ?? 0;
+    html += `<div class="popup-row"><span class="label">Hunger</span><span class="value">${Math.round(hunger)}</span></div>`;
   }
 
   entityPopup.innerHTML = html;
@@ -516,10 +568,10 @@ hintDiv.style.cssText = `
   color: rgba(255,255,255,0.3); font-size: 11px; pointer-events: none;
   text-align: center; font-family: monospace;
 `;
-hintDiv.textContent = '🖱 Drag to orbit · Scroll to zoom · Click entity=inspect · Space=pause · R=reset · 1-9=speed · C=camera';
+hintDiv.textContent = '🖱 Drag=orbit · Scroll=zoom · Click=inspect · Space=pause · R=reset · L=legend · 1-9=speed · C=camera';
 document.getElementById('ui-overlay')!.appendChild(hintDiv);
 
 // ─── Start ───
 requestAnimationFrame(gameLoop);
-console.log('🧟 Zombie Outbreak Simulator v3 started!');
-console.log('  Space=Pause  R=Reset  C=Camera  1-9=Speed  Click entity=Inspect');
+console.log('🧟 Zombie Outbreak Simulator v3 starting!');
+console.log('  Space=Pause  R=Reset  C=Camera  L=Legend  1-9=Speed  Click=Inspect');
