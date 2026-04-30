@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:mobile": "PLAYWRIGHT_BROWSERS_PATH=/home/openclaw/.cache/ms-playwright vitest run src/__tests__/mobile.test.ts --testTimeout=60000"
   },
   "dependencies": {
     "three": "^0.160.0"

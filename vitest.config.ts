@@ -3,7 +3,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     testTimeout: 60000,
-    include: ['src/__tests__/**/*.test.ts'],
+    include: ['src/__tests__/*.test.ts'],
+    exclude: ['src/__tests__/mobile.test.ts'],
     env: {
       PLAYWRIGHT_BROWSERS_PATH: '/home/openclaw/.cache/ms-playwright',
     },
