@@ -124,7 +124,7 @@ export class Simulation {
   constructor() {
     this.map = generateWorld(Date.now());
     this.state = this.createInitialState(this.map);
-    this.logEvent(`🧬 Outbreak detected. ${initialZombies} infected active.`, 'warning');
+    this.logEvent('🧬 Outbreak detected. Multiple infected active.', 'warning');
     this.logEvent('🏙️ Population: 400. Military expected in 48 hours.', 'info');
   }
 
