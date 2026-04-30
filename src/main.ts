@@ -59,8 +59,6 @@ let lastSurvivalDay = 0;
 
 // ─── Click-to-inspect ───
 let selectedEntityId: number | null = null;
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
 
 // ─── Add game over overlay ───
 gameOverDiv = document.createElement('div');

@@ -95,6 +95,9 @@ export class Renderer3D {
   private noAmmoIndicatorGeom: THREE.BufferGeometry;
   private starvingIndicatorGeom: THREE.BufferGeometry;
 
+  // Cached dot geometry for building occupant indicators (avoids per-frame alloc)
+  private occupantDotGeom: THREE.BufferGeometry;
+
   // Track last processed event index to avoid re-processing tracers
   private lastProcessedEvents = 0;
 
@@ -273,6 +276,7 @@ export class Renderer3D {
     this.antennaGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.2, 3);
     this.noAmmoIndicatorGeom = new THREE.ConeGeometry(0.08, 0.12, 3);
     this.starvingIndicatorGeom = new THREE.ConeGeometry(0.15, 0.25, 6);
+    this.occupantDotGeom = new THREE.PlaneGeometry(0.5, 0.5);
 
     // ─── Particle system (effects) ───
     this.particleGeom = new THREE.BufferGeometry();
@@ -835,7 +839,7 @@ export class Renderer3D {
       }
     }
 
-    const dotGeom = new THREE.PlaneGeometry(0.5, 0.5);
+    // Use cached occupantDotGeom instead of creating a new geometry each frame
 
     for (const [bId, count] of buildingOccupants.entries()) {
       if (count <= 0) continue;
@@ -873,7 +877,7 @@ export class Renderer3D {
           depthWrite: false,
           side: THREE.DoubleSide,
         });
-        const dot = new THREE.Mesh(dotGeom.clone(), mat);
+        const dot = new THREE.Mesh(this.occupantDotGeom.clone(), mat);
         dot.position.set(b.x + startX + col * spacing, b.h + 0.1, b.z + startZ + row * spacing);
         dot.rotation.x = -Math.PI / 2;
         this.scene.add(dot);
@@ -881,59 +885,6 @@ export class Renderer3D {
       }
       this.buildingOccupantDots.set(bId, dots);
     }
-  }
-
-  private createBuildingLabelSprite(count: number): THREE.Sprite {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d')!;
-    this.drawBuildingLabel(ctx, count);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.needsUpdate = true;
-    const mat = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthTest: false,
-      sizeAttenuation: true,
-    });
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(5.0, 5.0, 1);
-    return sprite;
-  }
-
-  private drawBuildingLabel(ctx: CanvasRenderingContext2D, count: number): void {
-    ctx.clearRect(0, 0, 256, 256);
-
-    // Background circle
-    ctx.fillStyle = 'rgba(0,0,0,0.75)';
-    ctx.beginPath();
-    ctx.arc(128, 128, 100, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = '#ffdd44';
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.arc(128, 128, 100, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Person emoji icon above count
-    ctx.font = 'bold 48px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ffdd44';
-    ctx.fillText('🧑', 128, 75);
-
-    // Count text with thick black outline for readability
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 96px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 6;
-    ctx.strokeText(String(count), 64, 64);
-    ctx.fillText(String(count), 64, 64);
   }
 
   private updateEntityMeshes(state: SimulationState, dayFactor: number, time: number): void {
@@ -1381,7 +1332,7 @@ export class Renderer3D {
     const size = 0.1 + Math.random() * 0.2;
     const geom = new THREE.CircleGeometry(size, 4);
     const mat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0.15 + Math.random() * 0.2, 0.4 + Math.random() * 0.2, 0.05),
+      color: new THREE.Color(0.5 + Math.random() * 0.3, 0.0, 0.0),
       transparent: true,
       opacity: 0.4 + Math.random() * 0.3,
       depthWrite: false,

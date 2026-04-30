@@ -168,10 +168,6 @@ html, body {
   border-color: #44ff44;
   box-shadow: 0 0 12px rgba(68,255,68,0.3);
 }
-.stat-box.danger-alert {
-  border-color: #ff4444;
-  box-shadow: 0 0 12px rgba(255,68,68,0.3);
-}
 .stat-label {
   font-size: 9px;
   color: #aaa;
@@ -390,12 +386,6 @@ html, body {
 .legend-mil { background: #ff3333; }
 .legend-starve { background: #ff6600; }
 .legend-noammo { background: transparent; font-size: 12px; }
-.legend-shop { background: #CD853F; }
-.legend-office { background: #7B8D8E; }
-.legend-ware { background: #8E8E8E; }
-.legend-hospital { background: #8B4513; }
-.legend-police { background: #2C3E50; border: 1px solid #4488ff; }
-.legend-house { background: #cccccc; border: 1px solid #999; }
 .legend-hint {
   margin-top: 6px;
   font-size: 9px;

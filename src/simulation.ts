@@ -199,7 +199,7 @@ export class Simulation {
       wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: Math.random() * 3, sleepTimer: 0, forageTimer: 0,
       buildingId: null, lastUpdateTime: 0,
-      speed: 2.4 + Math.random() * 0.75,
+      speed: 3.0 + Math.random() * 1.0,
       color: '#33ff33', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
       zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
@@ -298,13 +298,13 @@ export class Simulation {
     s.stats.military = mil;
     s.stats.dead = s.stats.zombiesKilledByMilitary + s.stats.civiliansTurned + s.stats.civiliansStarved;
 
-    // Food supply
+    // Food supply — percentage of "full rations" (each civilian needs ~2 food units)
     let totalFood = 0;
     for (const b of s.buildings) totalFood += b.food;
     const humanPop = civ + mil;
     if (humanPop > 0) {
-      const foodPerCapita = totalFood / Math.max(1, humanPop);
-      s.stats.foodSupply = Math.min(100, Math.max(0, Math.round(foodPerCapita * 8)));
+      // "Full supply" = 2 food units per person (enough for refeeding)
+      s.stats.foodSupply = Math.min(100, Math.max(0, Math.round((totalFood / Math.max(1, humanPop * 2)) * 100)));
     } else {
       s.stats.foodSupply = 0;
     }
@@ -320,12 +320,16 @@ export class Simulation {
     s.totalAmmoRemaining = totalAmmo;
     s.starvingCount = starvingCount;
 
-    // Chaos level (0-100)
-    s.chaosLevel = Math.min(100, Math.round(
-      (zomb > 0 ? (zomb / Math.max(1, civ + mil)) * 60 : 0) +
-      (s.stats.dead > 50 ? 20 : s.stats.dead > 20 ? 10 : 0) +
-      (zomb > 100 ? 20 : zomb > 50 ? 10 : 0)
-    ));
+    // Chaos level (0-100) — only meaningful when significant zombie presence
+    if (zomb <= 10) {
+      s.chaosLevel = 0;
+    } else {
+      s.chaosLevel = Math.min(100, Math.round(
+        (zomb / Math.max(1, civ + mil)) * 60 +
+        (s.stats.dead > 50 ? 20 : s.stats.dead > 20 ? 10 : 0) +
+        (zomb > 100 ? 20 : zomb > 50 ? 10 : 0)
+      ));
+    }
 
     // History
     this.historyTimer += dt;
@@ -654,7 +658,7 @@ export class Simulation {
     }
 
     // ─── PANIC / FLEEING SYSTEM ───
-    const fleeRange = 18;
+    const fleeRange = 14;
     const nearestZombie = this.findNearest(e, fleeRange, 'zombie');
     const zombieDist = nearestZombie ? dist(e, nearestZombie) : 999;
     const nearestZombieClose = this.findNearest(e, 12, 'zombie');
@@ -664,7 +668,7 @@ export class Simulation {
     if (zombieDistClose < 8) {
       e.state = 'fleeing';
       e.isPanicking = true;
-      e.panicTimer = 6 + Math.random() * 3;
+      e.panicTimer = 4 + Math.random() * 2;
       e.buildingId = null; // Cancel any foraging mission
     }
 
@@ -682,7 +686,7 @@ export class Simulation {
         } else {
           e.state = 'fleeing';
           e.isPanicking = true;
-          e.panicTimer = 6 + Math.random() * 3;
+          e.panicTimer = 4 + Math.random() * 2;
         }
       } else {
         // Hide inside
@@ -731,7 +735,7 @@ export class Simulation {
             const len = Math.sqrt(dx * dx + dz * dz) || 1;
             const fleeAngle = Math.atan2(dz, dx);
             const jitter = (Math.random() - 0.5) * 1.2; // More jitter for panic
-            const spd = e.speed * 2.5;
+            const spd = e.speed * 1.8;
             e.vx += Math.cos(fleeAngle + jitter) * spd * dt * 0.5;
             e.vz += Math.sin(fleeAngle + jitter) * spd * dt * 0.5;
           }
@@ -923,13 +927,13 @@ export class Simulation {
     }
 
     // Night speed boost
-    const nightSpeedMul = isNight ? 1.35 : 1.0;
+    const nightSpeedMul = isNight ? 1.6 : 1.0;
 
     // ─── Aggro system ───
     // Visual aggro: 10 units, requires LOS check
     // Audio aggro: 25 units (alertTimer active), no LOS needed
     // Without aggro: random wandering with direction changes
-    const VISUAL_RANGE = 10;
+    const VISUAL_RANGE = 16;
     const AUDIO_RANGE = 25;
 
     let bestTarget: Entity | null = null;
@@ -938,6 +942,8 @@ export class Simulation {
     for (const other of this.state.entities) {
       if (other.id === e.id || other.state === 'dead') continue;
       if (other.type !== 'civilian' && other.type !== 'military') continue;
+      // Skip civilians who are safely inside a building
+      if (other.type === 'civilian' && other.buildingId !== null && (other.state === 'hiding' || other.state === 'sleeping' || other.state === 'seeking_shelter')) continue;
       const d = dist(e, other);
       if (d < bestDist) {
         // For visual aggro (no alert), check line of sight
@@ -1002,6 +1008,17 @@ export class Simulation {
       e.vz *= 0.85;
       if (e.attackCooldown <= 0) {
         e.attackCooldown = 2.5;
+        // Safeguard: don't bite civilians who are inside buildings
+        if (target.type === 'civilian' && target.buildingId !== null && (target.state === 'hiding' || target.state === 'sleeping' || target.state === 'seeking_shelter')) {
+          // Target is safe inside a building — move away to find another
+          e.state = 'hunting';
+          e.targetId = null;
+          const dx = e.x - target.x;
+          const dz = e.z - target.z;
+          e.wanderAngle = Math.atan2(dz, dx);
+          e.wanderTimer = 1.5;
+          return;
+        }
         if (target.type === 'civilian') {
           // Instant turn
           target.type = 'zombie';
@@ -1016,7 +1033,7 @@ export class Simulation {
           target.buildingId = null;
           e.biteAttempts++;
           e.state = 'feeding';
-          e.feedingTimer = 2.0;
+          e.feedingTimer = 0.5;
           this.state.stats.totalInfected++;
           this.state.stats.civiliansTurned++;
           this.logEventThrottled(`Zombie turned civilian #${target.id} instantly!`, 'zombie', 2);
@@ -1032,9 +1049,10 @@ export class Simulation {
       const len = Math.sqrt(dx * dx + dz * dz) || 1;
       const jitter = (Math.random() - 0.5) * 0.4; // Slight randomness in chase direction
       const chaseAngle = Math.atan2(dz, dx) + jitter;
-      const chaseSpd = e.speed * 1.15 * nightSpeedMul;
-      e.vx += Math.cos(chaseAngle) * chaseSpd * dt * 0.35;
-      e.vz += Math.sin(chaseAngle) * chaseSpd * dt * 0.35;
+      const chaseSpd = e.speed * 2.5 * nightSpeedMul;
+      const sprintMul = len < 5 ? 1.6 : 1.0;
+      e.vx += Math.cos(chaseAngle) * chaseSpd * sprintMul * dt * 0.4;
+      e.vz += Math.sin(chaseAngle) * chaseSpd * sprintMul * dt * 0.4;
       e.state = 'hunting';
     }
   }
