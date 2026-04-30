@@ -99,21 +99,28 @@ legendPanel.innerHTML = `
   <div class="legend-item"><span class="legend-icon legend-mil"></span> Military (red)</div>
   <div class="legend-item"><span class="legend-icon legend-starve"></span> Starving (orange ▲)</div>
   <div class="legend-item"><span class="legend-icon legend-noammo"></span> Out of Ammo (🚫)</div>
-  <div class="legend-chart-title">📈 CHART LINES:</div>
-  <div class="legend-item"><span class="chart-line chart-civ"></span> Civilians (blue)</div>
-  <div class="legend-item"><span class="chart-line chart-zom"></span> Zombies (green)</div>
-  <div class="legend-item"><span class="chart-line chart-mil"></span> Military (red)</div>
   <div class="legend-hint">Press L to hide</div>
   <div class="legend-buildings-title">🏢 BUILDING OCCUPANCY:</div>
-  <div class="legend-item">🔵 Blue dots on roof = people inside</div>
+  <div class="legend-item"><span class="legend-block legend-occ"></span> People inside (blue dots)</div>
   <div class="legend-buildings-title">🏢 BUILDING TYPES:</div>
-  <div class="legend-item">🏪 Shop = 🍔 Food | 🏢 Office = 🥗 Food (low)</div>
-  <div class="legend-item">🏠 House = 🏠 Shelter | 🏭 Warehouse = 📦 Ammo + Food</div>
-  <div class="legend-item">🚨 Police = 🔫 Ammo (high)</div>
+  <div class="legend-item"><span class="legend-block block-shop"></span> Shop = Food</div>
+  <div class="legend-item"><span class="legend-block block-office"></span> Office = Food (low)</div>
+  <div class="legend-item"><span class="legend-block block-house"></span> House = Shelter</div>
+  <div class="legend-item"><span class="legend-block block-warehouse"></span> Warehouse = Ammo + Food</div>
+  <div class="legend-item"><span class="legend-block block-police"></span> Police = Ammo (high)</div>
   <div class="legend-hint"></div>
 `;
 document.getElementById('ui-overlay')!.appendChild(legendPanel);
 legendPanel.classList.add('visible');
+
+// Legend close button
+document.addEventListener('click', (e) => {
+  const target = e.target as HTMLElement;
+  if (target.id === 'legend-close') {
+    legendPanel.classList.remove('visible');
+    legendVisible = false;
+  }
+});
 
 // ─── Add keyframe styles ───
 const styleSheet = document.createElement('style');

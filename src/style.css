@@ -344,6 +344,7 @@ html, body {
   bottom: 20px;
   left: 20px;
   z-index: 15;
+  position: relative;
   background: rgba(0,0,0,0.8);
   border: 1px solid rgba(255,255,255,0.15);
   border-radius: 8px;
@@ -393,24 +394,34 @@ html, body {
   text-align: center;
 }
 
-/* Chart line legend */
-.chart-line {
+/* Building type color blocks (matching roof colors) */
+.legend-block {
   display: inline-block;
   width: 12px;
-  height: 3px;
-  border-radius: 1px;
+  height: 12px;
+  border-radius: 2px;
   flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.2);
 }
-.chart-civ { background: #4499ff; }
-.chart-zom { background: #33ff33; }
-.chart-mil { background: #ff3333; }
-.legend-chart-title {
-  font-size: 10px;
-  font-weight: 600;
-  color: #aaa;
-  margin-top: 6px;
-  margin-bottom: 2px;
-  letter-spacing: 0.5px;
+.legend-occ { background: #66ccff; border: none; border-radius: 50%; width: 8px; height: 8px; }
+.block-shop { background: #ffdd44; }
+.block-office { background: #ff8844; }
+.block-house { background: #cccccc; }
+.block-warehouse { background: #666666; }
+.block-police { background: #2244aa; }
+.legend-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  cursor: pointer;
+  color: #888;
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: all;
+  z-index: 16;
+}
+.legend-close:hover {
+  color: #fff;
 }
 .legend-buildings-title {
   font-size: 10px;
@@ -497,9 +508,24 @@ html, body {
   .hud-stats { gap: 2px; }
   .stat-box { padding: 2px 6px; min-width: 45px; }
   .stat-value { font-size: 12px; }
-  .event-feed { width: 200px; height: 120px; }
-  #chart-container { bottom: 10px; right: 10px; }
-  #pop-chart { width: 240px; height: 90px; }
-  .gameover-box { font-size: 20px; padding: 20px 30px; }
-  #legend-panel { font-size: 10px; min-width: 130px; }
+  .hud-title { font-size: 14px; }
+  .event-feed { width: 160px; height: 80px; font-size: 9px; }
+  #event-list { font-size: 9px; }
+  #chart-container { bottom: 8px; right: 8px; }
+  #pop-chart { width: 160px; height: 70px; }
+  #legend-panel { 
+    font-size: 9px; 
+    min-width: 120px; 
+    padding: 6px 8px;
+    bottom: 10px;
+    left: 10px;
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  #legend-panel .legend-item { line-height: 1.5; font-size: 9px; }
+  .gameover-box { font-size: 18px; padding: 15px 20px; }
+  .speed-control { padding: 4px 8px; }
+  #speed-slider { width: 80px; }
+  .controls-row { gap: 4px; }
+  .ctrl-btn { font-size: 9px; padding: 4px 8px; }
 }
