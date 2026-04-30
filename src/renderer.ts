@@ -825,7 +825,6 @@ export class Renderer3D {
           const parts = payload.slice(colonIdx + 1).split(',').map(Number);
           if (parts.length === 4) {
             this.spawnTracer(parts[0], parts[1], parts[2], parts[3], hit);
-            this.spawnParticleBurst(parts[2], parts[3], hit ? 0xff3333 : 0xff6666, 20);
           }
         }
       }
@@ -977,7 +976,18 @@ export class Renderer3D {
     for (const e of toRender) {
       currentIds.add(e.id);
       let group = this.entityMeshes.get(e.id);
-      if (!group) {
+      if (!group || group.userData.entityType !== e.type) {
+        // Remove old mesh if type changed (e.g., civilian turned zombie)
+        if (group) {
+          this.scene.remove(group);
+          group.traverse(child => {
+            if (child instanceof THREE.Mesh) {
+              child.geometry.dispose();
+              (child.material as THREE.Material).dispose();
+            }
+          });
+          this.entityMeshes.delete(e.id);
+        }
         group = this.createEntityMesh(e);
         this.scene.add(group);
         this.entityMeshes.set(e.id, group);
@@ -1426,7 +1436,7 @@ export class Renderer3D {
     const opacity = 0.5 + Math.random() * 0.3;
     const geom = new THREE.CircleGeometry(size, 8);
     const mat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0.15 + Math.random() * 0.1, 0.0, 0.0),
+      color: new THREE.Color(0.4 + Math.random() * 0.15, 0.0, 0.0),
       transparent: true,
       opacity: opacity,
       depthWrite: false,
