@@ -53,6 +53,9 @@ export interface Entity {
   alertTimer: number;
   alertX: number;
   alertZ: number;
+  sprintTimer: number;
+  sprintCooldown: number;
+  maxSprintTime: number;
 }
 
 export interface SimulationState {
@@ -147,8 +150,8 @@ export class Simulation {
       }
     }
 
-    // Patient zero — start with 2-3 zombies for a faster outbreak start
-    const initialZombies = 2 + Math.floor(Math.random() * 2);
+    // Patient zero — start with 2 zombies
+    const initialZombies = 2;
     for (let zi = 0; zi < initialZombies; zi++) {
       let zx = (Math.random() - 0.5) * 20;
       let zz = (Math.random() - 0.5) * 20;
@@ -189,6 +192,9 @@ export class Simulation {
       color: '#4499ff', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
       zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
+      sprintTimer: 0,
+      sprintCooldown: 0,
+      maxSprintTime: 1.5 + Math.random() * 1.0,
     };
   }
 
@@ -196,16 +202,19 @@ export class Simulation {
     return {
       id: this.nextId++,
       type: 'zombie', x, z, vx: 0, vz: 0,
-      state: 'hunting', hp: 40, maxHp: 40,
+      state: 'hunting', hp: 30, maxHp: 30,
       hunger: 100, fatigue: 100, ammo: 0, maxAmmo: 0, magazineSize: 0, ammoInMag: 0, isReloading: false, reloadTimer: 0,
       attackCooldown: 0, targetId: null,
       wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: Math.random() * 3, sleepTimer: 0, forageTimer: 0,
       buildingId: null, lastUpdateTime: 0,
-      speed: 3.0 + Math.random() * 1.0,
+      speed: 3.5 + Math.random() * 1.0,
       color: '#33ff33', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
       zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
+      sprintTimer: 0,
+      sprintCooldown: 0,
+      maxSprintTime: 0,
     };
   }
 
@@ -215,15 +224,18 @@ export class Simulation {
       type: 'military', x, z, vx: 0, vz: 0,
       state: 'patrolling', hp: 100, maxHp: 100,
       hunger: 70 + Math.random() * 30, fatigue: 10,
-      ammo: 150, maxAmmo: 150, magazineSize: 2, ammoInMag: 10, isReloading: false, reloadTimer: 0,
+      ammo: 150, maxAmmo: 150, magazineSize: 10, ammoInMag: 10, isReloading: false, reloadTimer: 0,
       attackCooldown: 0,
       targetId: null, wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: 1, sleepTimer: 0, forageTimer: 0,
       buildingId: null, lastUpdateTime: 0,
-      speed: 3.0 + Math.random() * 0.75,
+      speed: 3.5 + Math.random() * 0.75,
       color: '#ff3333', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: squadId || null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
       zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
+      sprintTimer: 0,
+      sprintCooldown: 0,
+      maxSprintTime: 0,
     };
   }
 
@@ -269,6 +281,9 @@ export class Simulation {
 
     // ─── Phase tracking ───
     this.updatePhase();
+
+    // ─── Deployment timer countdown ───
+    if (this.deploymentTimer > 0) this.deploymentTimer -= dt;
 
     // ─── Military deployment ───
     this.deployMilitary();
@@ -471,59 +486,41 @@ export class Simulation {
 
   private deployMilitary(): void {
     const s = this.state;
-    const day = s.day;
+    const zombieThreat = s.stats.zombies;
+    const civilianCount = s.stats.civilians;
+    const totalThreat = zombieThreat + s.stats.civiliansTurned;
 
-    this.deploymentTimer += 1;
-    if (this.deploymentTimer < 10) return;
-    this.deploymentTimer = 0;
+    // Deployment thresholds based on infection level
+    // Small initial force arrives early, then scales with threat
+    let targetSoldiers = 0;
 
-    // Initial deployment day 2 (guaranteed)
-    if (day === 2 && s.totalTime < DAY_LENGTH * 2 + 10 && s.stats.military === 0) {
-      const squadId = this.nextSquadId++;
-      const count = 3 + Math.floor(Math.random() * 2);
-      for (let i = 0; i < count; i++) {
+    if (totalThreat >= 2) targetSoldiers = 2;
+    if (totalThreat >= 10) targetSoldiers = 3;
+    if (totalThreat >= 20) targetSoldiers = 5;
+    if (totalThreat >= 40) targetSoldiers = 8;
+    if (totalThreat >= 70) targetSoldiers = 11;
+    if (totalThreat >= 110) targetSoldiers = 15;
+    if (totalThreat >= 160) targetSoldiers = 19;
+    if (totalThreat >= 230) targetSoldiers = 24;
+    if (totalThreat >= 300) targetSoldiers = 28;
+
+    // Cap soldiers so zombies still have a chance
+    targetSoldiers = Math.min(targetSoldiers, Math.floor(zombieThreat * 0.7 + 3));
+
+    // Deploy in waves - don't spawn all at once
+    const currentMil = s.stats.military;
+    if (currentMil < targetSoldiers && this.deploymentTimer <= 0) {
+      const toDeploy = Math.min(1 + Math.floor(Math.random() * 2), targetSoldiers - currentMil);
+      // Spawn at random edge of map
+      for (let i = 0; i < toDeploy; i++) {
         const angle = Math.random() * Math.PI * 2;
         const x = Math.cos(angle) * (MAP_HALF - 3);
         const z = Math.sin(angle) * (MAP_HALF - 3);
-        const e = this.createMilitary(x + (Math.random() - 0.5) * 2, z + (Math.random() - 0.5) * 2, squadId);
-        if (i === 0) e.isSquadLeader = true;
-        s.entities.push(e);
+        s.entities.push(this.createMilitary(x + (Math.random() - 0.5) * 3, z + (Math.random() - 0.5) * 3));
         s.stats.military++;
       }
-      this.logEvent(`🚁 Military deployed! Squad ${squadId} (${count} units) entering the city.`, 'military');
-      return;
-    }
-
-    // Additional squad deployment on later days
-    if (day >= 3 && s.stats.zombies > s.stats.military * 4 && s.stats.military < 20) {
-      const squadId = this.nextSquadId++;
-      const count = 2 + Math.floor(Math.random() * 2);
-      const angle = Math.random() * Math.PI * 2;
-      const x = Math.cos(angle) * (MAP_HALF - 3);
-      const z = Math.sin(angle) * (MAP_HALF - 3);
-      for (let i = 0; i < count; i++) {
-        const e = this.createMilitary(x + (Math.random() - 0.5) * 3, z + (Math.random() - 0.5) * 3, squadId);
-        if (i === 0) e.isSquadLeader = true;
-        s.entities.push(e);
-        s.stats.military++;
-      }
-      this.logEvent(`🔫 Squad ${squadId} deployed (${count} troops).`, 'military');
-    }
-
-    // Emergency response when overwhelmed
-    if (s.stats.zombies > 80 && s.stats.military < 8 && day >= 3) {
-      const squadId = this.nextSquadId++;
-      const count = 4 + Math.floor(Math.random() * 3);
-      const angle = Math.random() * Math.PI * 2;
-      const x = Math.cos(angle) * (MAP_HALF - 3);
-      const z = Math.sin(angle) * (MAP_HALF - 3);
-      for (let i = 0; i < count; i++) {
-        const e = this.createMilitary(x + (Math.random() - 0.5) * 3, z + (Math.random() - 0.5) * 3, squadId);
-        if (i === 0) e.isSquadLeader = true;
-        s.entities.push(e);
-        s.stats.military++;
-      }
-      this.logEvent(`🚁 EMERGENCY RESPONSE! Squad ${squadId} deployed!`, 'military');
+      this.deploymentTimer = 1.5 + Math.random() * 1.5; // Cooldown between waves
+      this.logEvent(`🚁 ${toDeploy} soldier${toDeploy>1?'s':''} deployed. (${currentMil + toDeploy} total)`, 'military');
     }
   }
 
@@ -557,8 +554,11 @@ export class Simulation {
       e.vz *= 0.7;
     }
 
-    // Clamp velocity
-    const maxSpeed = e.isAsleep ? 0.1 : e.speed * (e.type === 'zombie' ? 1.3 : 1.2);
+    // Clamp velocity (sprinting civilians get extra speed)
+    let maxSpeed = e.isAsleep ? 0.1 : e.speed * (e.type === 'zombie' ? 1.3 : 1.2);
+    if (e.type === 'civilian' && e.sprintTimer > 0) {
+      maxSpeed = e.speed * 3.5; // Allow sprint speed
+    }
     const spd = Math.sqrt(e.vx * e.vx + e.vz * e.vz);
     if (spd > maxSpeed) {
       e.vx = (e.vx / spd) * maxSpeed;
@@ -660,6 +660,35 @@ export class Simulation {
       return;
     }
 
+    // ─── SEEKING SHELTER (handles both night and day seeking) ───
+    if (e.state === 'seeking_shelter') {
+      const targetB = e.buildingId !== null ? this.state.buildings.find(b => b.id === e.buildingId) : null;
+      if (targetB) {
+        const d = dist(e, targetB);
+        if (d < 1) {
+          // Enter building
+          e.buildingId = targetB.id;
+          e.state = 'hiding';
+          e.hideTimer = 4 + Math.random() * 6;
+          e.vx = 0; e.vz = 0;
+          return;
+        } else {
+          // Move toward building
+          const dx = targetB.x - e.x;
+          const dz = targetB.z - e.z;
+          const len = Math.sqrt(dx * dx + dz * dz) || 1;
+          const spd = e.speed * 1.2;
+          e.vx += (dx / len) * spd * dt * 0.4;
+          e.vz += (dz / len) * spd * dt * 0.4;
+          return;
+        }
+      } else {
+        // No target — fall back to wandering
+        e.state = 'wandering';
+        e.buildingId = null;
+      }
+    }
+
     // ─── PANIC / FLEEING SYSTEM ───
     const fleeRange = 14;
     const nearestZombie = this.findNearest(e, fleeRange, 'zombie');
@@ -699,15 +728,70 @@ export class Simulation {
       }
     }
 
+    // ─── ENHANCED HIDING: seek building when outnumbered by zombies ───
+    if (nearestZombie && zombieDist < 18 && e.hunger >= 25 && e.state !== 'hiding' && e.state !== 'fleeing' && (e.state as string) !== 'seeking_shelter') {
+      let zombiesVisible = 0;
+      let alliesVisible = 0;
+      for (const other of this.state.entities) {
+        if (other.id === e.id || other.state === 'dead') continue;
+        if (dist(e, other) > 18) continue;
+        if (other.type === 'zombie') zombiesVisible++;
+        else if (other.type === 'civilian' || other.type === 'military') alliesVisible++;
+      }
+      if (zombiesVisible > alliesVisible) {
+        const targetB = findNearestBuilding(this.state.buildings, e.x, e.z);
+        if (targetB) {
+          e.state = 'seeking_shelter';
+          e.buildingId = targetB.id;
+        }
+      }
+    }
+
+    // ─── SPRINT SYSTEM ───
+    // Manage sprint cooldown
+    if (e.sprintCooldown > 0) {
+      e.sprintCooldown -= dt;
+    }
+
+    // Activate sprint when zombie detected within 14 units
+    if (nearestZombie && zombieDist < 14 && e.sprintCooldown <= 0 && e.sprintTimer <= 0) {
+      e.sprintTimer = e.maxSprintTime * (1 - (e.hunger < 25 ? 0.5 : 0));
+    }
+
+    // Manage sprint timer
+    if (e.sprintTimer > 0) {
+      e.sprintTimer -= dt;
+      if (e.sprintTimer <= 0) {
+        e.sprintTimer = 0;
+        if (e.hunger < 25) {
+          e.sprintCooldown = 6 + Math.random() * 3;
+        } else {
+          e.sprintCooldown = 3 + Math.random() * 2;
+        }
+      }
+    }
+
     // State machine
     switch (e.state) {
       case 'hiding': {
         e.vx = 0; e.vz = 0;
         e.hideTimer -= dt;
+        // Only hunger < 25 can force civilians out of hiding early
+        const forcedOut = e.hunger < 25;
         // Check if zombie is still near before coming out
         const zCheck = this.findNearest(e, 14, 'zombie');
-        if (e.hideTimer <= 0 || !zCheck || dist(e, zCheck) > 14) {
+        if (e.hideTimer <= 0 || forcedOut || !zCheck || dist(e, zCheck) > 14) {
           e.state = 'wandering';
+          // Exit away from nearest zombie
+          if (zCheck) {
+            const dx = e.x - zCheck.x;
+            const dz = e.z - zCheck.z;
+            const len = Math.sqrt(dx * dx + dz * dz) || 1;
+            e.wanderAngle = Math.atan2(dz, dx) + (Math.random() - 0.5) * 1.0;
+          } else {
+            e.wanderAngle = Math.random() * Math.PI * 2;
+          }
+          e.wanderTimer = 1.5;
         }
         break;
       }
@@ -717,28 +801,53 @@ export class Simulation {
         if (z) {
           const d = dist(e, z);
           if (d < 1.3) {
-            // Bitten — instant turn
-            this.logEvent(`Civilian #${e.id} was bitten and turned into a zombie!`, 'zombie');
-            e.type = 'zombie';
-            e.hp = 40;
-            e.maxHp = 40;
-            e.speed = 2.4 + Math.random() * 0.75;
-            e.color = '#33ff33';
-            e.state = 'hunting';
-            e.isAsleep = false;
-            e.attackCooldown = 0;
-            e.zombieAge = 0;
-            e.buildingId = null;
-            this.state.stats.totalInfected++;
-            this.state.stats.civiliansTurned++;
+            // Bitten — 50% chance to resist
+            if (Math.random() < 0.5) {
+              // Resist! Take damage but don't turn
+              e.hp -= 35; // Less damage, 100 HP means 4 bites to kill
+              if (e.hp <= 0) {
+                e.state = 'dead';
+                this.state.stats.civiliansStarved++;
+                this.state.events.push({
+                  time: this.state.totalTime,
+                  day: this.state.day,
+                  text: `CORPSE:${e.x},${e.z}`,
+                  type: 'death',
+                });
+                return;
+              }
+              // Push away from zombie after resisting
+              const dx = e.x - z.x;
+              const dz = e.z - z.z;
+              const len = Math.sqrt(dx * dx + dz * dz) || 1;
+              e.vx += (dx / len) * 8;
+              e.vz += (dz / len) * 8;
+              this.logEventThrottled(`Civilian #${e.id} resisted a bite!`, 'info', 3);
+            } else {
+              // Turn into zombie
+              e.type = 'zombie';
+              e.hp = 30;
+              e.maxHp = 30;
+              e.speed = 2.6 + Math.random() * 0.75;
+              e.color = '#33ff33';
+              e.state = 'hunting';
+              e.isAsleep = false;
+              e.attackCooldown = 0;
+              e.zombieAge = 0;
+              e.buildingId = null;
+              this.state.stats.totalInfected++;
+              this.state.stats.civiliansTurned++;
+              this.logEventThrottled(`Civilian #${e.id} was bitten and turned!`, 'zombie', 3);
+            }
           } else {
-            // Flee away from zombie at 2.5x speed with random jitter
+            // Flee away from zombie with sprint speed when available
             const dx = e.x - z.x;
             const dz = e.z - z.z;
             const len = Math.sqrt(dx * dx + dz * dz) || 1;
             const fleeAngle = Math.atan2(dz, dx);
             const jitter = (Math.random() - 0.5) * 1.2; // More jitter for panic
-            const spd = e.speed * 1.8;
+            const sprintMul = e.sprintTimer > 0 ? 3.0 : 1.8;
+            const spd = e.speed * sprintMul;
             e.vx += Math.cos(fleeAngle + jitter) * spd * dt * 0.5;
             e.vz += Math.sin(fleeAngle + jitter) * spd * dt * 0.5;
           }
@@ -1023,26 +1132,45 @@ export class Simulation {
           return;
         }
         if (target.type === 'civilian') {
-          // Instant turn
-          target.type = 'zombie';
-          target.hp = 40;
-          target.maxHp = 40;
-          target.speed = 2.4 + Math.random() * 0.75;
-          target.color = '#33ff33';
-          target.state = 'hunting';
-          target.isAsleep = false;
-          target.attackCooldown = 0;
-          target.zombieAge = 0;
-          target.buildingId = null;
-          e.biteAttempts++;
-          e.state = 'feeding';
-          e.feedingTimer = 0.5;
-          this.state.stats.totalInfected++;
-          this.state.stats.civiliansTurned++;
-          this.logEventThrottled(`Zombie turned civilian #${target.id} instantly!`, 'zombie', 2);
+          // 50% chance to resist infection (take damage instead)
+          if (Math.random() < 0.5) {
+            // Resist! Civilian takes damage but doesn't turn
+            target.hp -= 35; // Less damage, 100 HP means 4 bites to kill
+            if (target.hp <= 0) {
+              target.state = 'dead';
+              this.state.stats.civiliansStarved++;
+              this.state.events.push({
+                time: this.state.totalTime,
+                day: this.state.day,
+                text: `CORPSE:${target.x},${target.z}`,
+                type: 'death',
+              });
+            }
+          } else {
+            // Turn into zombie
+            target.type = 'zombie';
+            target.hp = 30;
+            target.maxHp = 30;
+            target.speed = 2.6 + Math.random() * 0.75;
+            target.color = '#33ff33';
+            target.state = 'hunting';
+            target.isAsleep = false;
+            target.attackCooldown = 0;
+            target.zombieAge = 0;
+            target.buildingId = null;
+            e.biteAttempts++;
+            e.state = 'feeding';
+            e.feedingTimer = 0.5;
+            this.state.stats.totalInfected++;
+            this.state.stats.civiliansTurned++;
+          }
+          this.logEventThrottled(`Zombie bit civilian #${target.id}!`, 'zombie', 2);
         } else if (target.type === 'military') {
-          target.state = 'dead';
-          this.logEvent(`Military unit #${target.id} killed by zombie.`, 'death');
+          target.hp -= 35;
+          if (target.hp <= 0) {
+            target.state = 'dead';
+            this.logEvent(`Military unit #${target.id} killed by zombie.`, 'death');
+          }
         }
       }
     } else {
@@ -1224,7 +1352,7 @@ export class Simulation {
     // ─── COMBAT ───
     // Check for nearby civilians in danger — prioritize protecting them
     const nearCivInDanger = this.findNearest(e, 12, 'civilian');
-    const nearZombie = this.findNearest(e, 18, 'zombie');
+    const nearZombie = this.findNearest(e, 25, 'zombie');
 
     // If a civilian is very close and a zombie is nearby, protect them
     if (nearCivInDanger && nearZombie && dist(nearCivInDanger, nearZombie) < 5) {
@@ -1241,14 +1369,14 @@ export class Simulation {
       e.state = 'engaging';
       const d = dist(e, nearZombie);
 
-      // Check line of sight — if a building blocks the shot, move to clear it
-      if (!this.hasClearShot(e, nearZombie)) {
-        // Move to get a clear shot
-        const perpX = -(nearZombie.z - e.z) / d;
-        const perpZ = (nearZombie.x - e.x) / d;
-        e.vx += perpX * e.speed * 0.4 * dt;
-        e.vz += perpZ * e.speed * 0.4 * dt;
-        // Reset aim when moving — need to reacquire
+      // If a building blocks the shot, close in until clear
+      if (!this.hasClearShot(e, nearZombie) && d > 3) {
+        // Move toward the zombie to get a better angle
+        const dx = nearZombie.x - e.x;
+        const dz = nearZombie.z - e.z;
+        const len = Math.sqrt(dx * dx + dz * dz) || 1;
+        e.vx += (dx / len) * e.speed * 0.6 * dt;
+        e.vz += (dz / len) * e.speed * 0.6 * dt;
         e.aimTimer = 0;
         return;
       }
@@ -1272,13 +1400,13 @@ export class Simulation {
           if (e.aimTimer <= 0 && e.ammoInMag > 0) {
             // Fire!
             e.ammoInMag -= 1;
-            e.attackCooldown = 1.5;
+            e.attackCooldown = 0.8;
             e.aimTimer = 0;
             e.isAiming = false;
 
-            // Accuracy: hit chance = 100 - (distance * 5)
-            // At distance 15 = 25%, at distance 5 = 75%
-            const hitChance = Math.max(5, Math.floor(100 - d * 5));
+            // Accuracy: hit chance = 95 - (distance * 2)
+            // At distance 5 = 85%, at distance 15 = 65%, at distance 25 = 45%
+            const hitChance = Math.max(15, Math.floor(95 - d * 2));
             const hit = Math.random() * 100 < hitChance;
             const hitStr = hit ? 'HIT' : 'MISS';
 
@@ -1345,15 +1473,25 @@ export class Simulation {
       return;
     }
 
-    // Patrol
+    // Patrol — move toward city center to find zombies
     e.state = 'patrolling';
-    e.wanderTimer -= dt;
-    if (e.wanderTimer <= 0) {
-      e.wanderAngle = Math.random() * Math.PI * 2;
-      e.wanderTimer = 3 + Math.random() * 5;
+    
+    // If far from center (>15 units), move inward
+    const distFromCenter = Math.sqrt(e.x * e.x + e.z * e.z);
+    if (distFromCenter > 18) {
+      // Move inward slowly
+      const centerAngle = Math.atan2(-e.z, -e.x);
+      e.vx += Math.cos(centerAngle) * e.speed * 0.4 * dt;
+      e.vz += Math.sin(centerAngle) * e.speed * 0.4 * dt;
+    } else {
+      e.wanderTimer -= dt;
+      if (e.wanderTimer <= 0) {
+        e.wanderAngle = Math.random() * Math.PI * 2;
+        e.wanderTimer = 2 + Math.random() * 3;
+      }
+      e.vx += Math.cos(e.wanderAngle) * e.speed * 0.4 * dt;
+      e.vz += Math.sin(e.wanderAngle) * e.speed * 0.4 * dt;
     }
-    e.vx += Math.cos(e.wanderAngle) * e.speed * 0.4 * dt;
-    e.vz += Math.sin(e.wanderAngle) * e.speed * 0.4 * dt;
   }
 
   // ─── LINE OF SIGHT CHECK ───
