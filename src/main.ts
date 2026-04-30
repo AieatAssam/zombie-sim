@@ -103,11 +103,12 @@ legendPanel.innerHTML = `
   <div class="legend-item"><span class="chart-line chart-zom"></span> Zombies (green)</div>
   <div class="legend-item"><span class="chart-line chart-mil"></span> Military (red)</div>
   <div class="legend-buildings-title">🏢 BUILDINGS:</div>
-  <div class="legend-item"><span class="legend-icon legend-shop"></span> Shop (food)</div>
-  <div class="legend-item"><span class="legend-icon legend-ware"></span> Warehouse (ammo)</div>
-  <div class="legend-item"><span class="legend-icon legend-hospital"></span> Hospital (heal)</div>
-  <div class="legend-item"><span class="legend-icon legend-police"></span> Police Station</div>
-  <div class="legend-item"><span class="legend-icon legend-house"></span> House (shelter)</div>
+  <div class="legend-item"><span class="legend-icon legend-shop"></span> 🏪 Shop = Food</div>
+  <div class="legend-item"><span class="legend-icon legend-office"></span> 🏢 Office = Food (low)</div>
+  <div class="legend-item"><span class="legend-icon legend-house"></span> 🏠 House = Shelter</div>
+  <div class="legend-item"><span class="legend-icon legend-ware"></span> 🏭 Warehouse = Ammo + Food</div>
+  <div class="legend-item"><span class="legend-icon legend-police"></span> 🚨 Police = Ammo (high)</div>
+  <div class="legend-item"><span class="legend-icon legend-hospital"></span> 🏥 Hospital = Heal</div>
   <div class="legend-hint">Press L to hide</div>
 `;
 document.getElementById('ui-overlay')!.appendChild(legendPanel);

@@ -95,6 +95,9 @@ export class Renderer3D {
   private noAmmoIndicatorGeom: THREE.BufferGeometry;
   private starvingIndicatorGeom: THREE.BufferGeometry;
 
+  // Track last processed event index to avoid re-processing tracers
+  private lastProcessedEvents = 0;
+
   constructor(container: HTMLElement) {
     this.container = container;
     this.renderer = new THREE.WebGLRenderer({
@@ -735,7 +738,7 @@ export class Renderer3D {
     // Track which civilians are inside which buildings for visual effect
     const buildingOccupants = new Map<number, number>();
     for (const e of state.entities) {
-      if (e.type === 'civilian' && e.state === 'hiding' && e.buildingId !== null) {
+      if (e.type === 'civilian' && e.state !== 'dead' && e.buildingId !== null) {
         buildingOccupants.set(e.buildingId, (buildingOccupants.get(e.buildingId) || 0) + 1);
       }
     }
@@ -810,10 +813,12 @@ export class Renderer3D {
       }
     }
 
-    // ─── Handle shot events ───
-    for (const ev of state.events) {
+    // ─── Handle shot events (only NEW events since last frame) ───
+    const events = state.events;
+    for (let i = this.lastProcessedEvents; i < events.length; i++) {
+      const ev = events[i];
       if (ev.text.startsWith('SHOT:')) {
-        const payload = ev.text.slice(5); // Remove 'SHOT:' prefix
+        const payload = ev.text.slice(5);
         const colonIdx = payload.indexOf(':');
         if (colonIdx > 0) {
           const hit = payload.slice(0, colonIdx) === 'HIT';
@@ -825,6 +830,7 @@ export class Renderer3D {
         }
       }
     }
+    this.lastProcessedEvents = events.length;
 
     // ─── Update tracers ───
     this.updateTracers(dt);
@@ -852,13 +858,8 @@ export class Renderer3D {
 
   private updateOccupantDots(buildingOccupants: Map<number, number>, state: SimulationState): void {
     // Remove dots for buildings no longer occupied
-    const occupiedIds = new Set<number>();
-    for (const [bId] of buildingOccupants) {
-      if (buildingOccupants.get(bId)! > 0) occupiedIds.add(bId);
-    }
-
     for (const [bId, meshes] of this.buildingOccupantDots.entries()) {
-      if (!occupiedIds.has(bId)) {
+      if (!buildingOccupants.has(bId)) {
         for (const m of meshes) {
           this.scene.remove(m);
           m.geometry.dispose();
@@ -868,43 +869,51 @@ export class Renderer3D {
       }
     }
 
-    const dotGeom = new THREE.PlaneGeometry(0.6, 0.6);
+    const dotGeom = new THREE.PlaneGeometry(0.5, 0.5);
 
     for (const [bId, count] of buildingOccupants.entries()) {
       if (count <= 0) continue;
       const b = state.buildings.find(b => b.id === bId);
       if (!b) continue;
 
-      const dotCount = Math.min(count, 12);
-      const cols = Math.min(4, Math.ceil(Math.sqrt(dotCount)));
-      const rows = Math.ceil(dotCount / cols);
-      const spacing = 0.7;
+      const dotCount = Math.min(count, 9);
+      const cols = 3;  // Fixed 3x3 grid
+      const rows = 3;
+      const spacing = 0.5;
 
-      let dots = this.buildingOccupantDots.get(bId);
-
-      if (!dots) {
-        dots = [];
-        const startX = -((cols - 1) * spacing) / 2;
-        const startZ = -((rows - 1) * spacing) / 2;
-
-        for (let i = 0; i < dotCount; i++) {
-          const col = i % cols;
-          const row = Math.floor(i / cols);
-          const mat = new THREE.MeshBasicMaterial({
-            color: i < 2 ? 0x44ddff : 0x88eeff,
-            transparent: true,
-            opacity: 1.0,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-          });
-          const dot = new THREE.Mesh(dotGeom.clone(), mat);
-          dot.position.set(b.x + startX + col * spacing, b.h + 0.08, b.z + startZ + row * spacing);
-          dot.rotation.x = -Math.PI / 2;
-          this.scene.add(dot);
-          dots.push(dot);
+      // Remove old dots for this building
+      const oldDots = this.buildingOccupantDots.get(bId);
+      if (oldDots) {
+        for (const m of oldDots) {
+          this.scene.remove(m);
+          m.geometry.dispose();
+          (m.material as THREE.Material).dispose();
         }
-        this.buildingOccupantDots.set(bId, dots);
       }
+
+      // Create fresh dots every time
+      const dots: THREE.Mesh[] = [];
+      const startX = -((cols - 1) * spacing) / 2;
+      const startZ = -((rows - 1) * spacing) / 2;
+
+      for (let i = 0; i < dotCount; i++) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const brightness = 0.6 + (i / dotCount) * 0.4;
+        const mat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(0.2, 0.5 + brightness * 0.4, 0.8),
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const dot = new THREE.Mesh(dotGeom.clone(), mat);
+        dot.position.set(b.x + startX + col * spacing, b.h + 0.1, b.z + startZ + row * spacing);
+        dot.rotation.x = -Math.PI / 2;
+        this.scene.add(dot);
+        dots.push(dot);
+      }
+      this.buildingOccupantDots.set(bId, dots);
     }
   }
 
@@ -1447,6 +1456,7 @@ export class Renderer3D {
       });
     }
     this.entityMeshes.clear();
+    this.lastProcessedEvents = 0;
 
     this.clearMeshes();
 

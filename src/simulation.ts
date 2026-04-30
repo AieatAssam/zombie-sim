@@ -579,6 +579,14 @@ export class Simulation {
       }
     }
 
+    // Hospital healing: regenerate HP when near a hospital
+    if (e.hp < e.maxHp) {
+      const nearHospital = findNearestBuilding(this.state.buildings, e.x, e.z, 'hospital');
+      if (nearHospital && dist(e, nearHospital) < 2) {
+        e.hp = Math.min(e.maxHp, e.hp + 5 * dt);
+      }
+    }
+
     // Night shelter: civilians seek buildings to sleep in
     if (isNight && e.fatigue > 60 && e.state !== 'starving' && e.state !== 'fleeing' && e.state !== 'hiding') {
       if (e.state !== 'seeking_shelter' && !e.isAsleep) {
@@ -587,6 +595,7 @@ export class Simulation {
         if (targetB) {
           e.state = 'seeking_shelter';
           e.buildingId = targetB.id;
+          e.wanderTimer = 10; // 10-second timeout before fallback sleep
         } else {
           // Fallback: sleep in place if no building found
           e.isAsleep = true;
@@ -597,15 +606,23 @@ export class Simulation {
       }
       if (e.state === 'seeking_shelter') {
         const targetB = e.buildingId !== null ? this.state.buildings.find(b => b.id === e.buildingId) : null;
+        // Use wanderTimer as a crude timeout counter (10 seconds)
+        e.wanderTimer -= dt;
+        if (e.wanderTimer <= 0) {
+          // Timeout: just sleep in place as fallback
+          e.isAsleep = true;
+          e.state = 'sleeping';
+          e.vx = 0; e.vz = 0;
+          return;
+        }
         if (targetB) {
-          // Check if inside the building
-          const inside = isInsideBuilding(this.state.buildings, e.x, e.z, 0.5);
-          if (inside && inside.id === targetB.id) {
-            // Inside! Go to sleep
+          const d = dist(e, targetB);
+          if (d < 1) {
+            // Close enough — enter building and sleep
+            e.buildingId = targetB.id;
             e.isAsleep = true;
             e.state = 'sleeping';
             e.vx = 0; e.vz = 0;
-            e.buildingId = targetB.id;
             return;
           } else {
             // Move toward building
@@ -1054,6 +1071,14 @@ export class Simulation {
         e.state = 'dead';
         this.logEvent(`Military unit #${e.id} died of starvation.`, 'death');
         return;
+      }
+    }
+
+    // Hospital healing: regenerate HP when near a hospital (slower than civilians)
+    if (e.hp < e.maxHp) {
+      const nearHospital = findNearestBuilding(this.state.buildings, e.x, e.z, 'hospital');
+      if (nearHospital && dist(e, nearHospital) < 2) {
+        e.hp = Math.min(e.maxHp, e.hp + 3 * dt);
       }
     }
 
