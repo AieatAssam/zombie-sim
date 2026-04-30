@@ -409,10 +409,14 @@ export class Simulation {
       s.gameOver = true;
       s.gameOverReason = '🎉 CITY SAVED! ZOMBIES ELIMINATED.';
       this.logEvent('✅ GAME OVER — Zombies eliminated! Civilians survive.', 'info');
-    } else if (s.day >= 7 && civ >= 10) {
+    } else if (civ <= 3 && zomb > 0) {
       s.gameOver = true;
-      s.gameOverReason = '🎉 SOCIETY SURVIVES! Day 7 reached with civilians.';
-      this.logEvent('✅ GAME OVER — Society endures! Civilians survive to Day 7.', 'info');
+      s.gameOverReason = '💀 LAST CIVILIANS HUNTED DOWN.';
+      this.logEvent('☠️ GAME OVER — The last civilians were found.', 'death');
+    } else if (s.day >= 7 && civ >= 100) {
+      s.gameOver = true;
+      s.gameOverReason = '🎉 SOCIETY SURVIVES! ' + civ + ' civilians endure.';
+      this.logEvent('✅ GAME OVER — Society endures! ' + civ + ' civilians survive to Day 7.', 'info');
     }
   }
 
@@ -1519,7 +1523,7 @@ export class Simulation {
 
             // Accuracy: hit chance = 95 - (distance * 2)
             // At distance 5 = 85%, at distance 15 = 65%, at distance 25 = 45%
-            const hitChance = Math.max(25, Math.floor(90 - d * 1.5));
+            const hitChance = Math.max(30, Math.floor(93 - d * 1.4));
             const hit = Math.random() * 100 < hitChance;
             const hitStr = hit ? 'HIT' : 'MISS';
 
