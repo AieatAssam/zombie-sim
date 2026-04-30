@@ -23,7 +23,8 @@ export class Renderer3D {
   private treeMeshes: THREE.Mesh[] = [];
   private wallMeshes: THREE.Mesh[] = [];
   private specialBuildingLights: THREE.Mesh[] = [];
-  private buildingLabelSprites: Map<number, THREE.Sprite> = new Map();
+  // Roof occupant indicators: small blue dots directly on building roof
+  private buildingOccupantDots: Map<number, THREE.Mesh[]> = new Map();
 
   private ambient: THREE.AmbientLight;
   private directional: THREE.DirectionalLight;
@@ -631,12 +632,14 @@ export class Renderer3D {
     this.tracers = [];
 
     // Clear building labels
-    for (const sprite of this.buildingLabelSprites.values()) {
-      this.scene.remove(sprite);
-      if (sprite.material.map) sprite.material.map.dispose();
-      sprite.material.dispose();
+    for (const [bId, meshes] of this.buildingOccupantDots.entries()) {
+      for (const m of meshes) {
+        this.scene.remove(m);
+        m.geometry.dispose();
+        (m.material as THREE.Material).dispose();
+      }
     }
-    this.buildingLabelSprites.clear();
+    this.buildingOccupantDots.clear();
 
     // Clear corpses
     for (const g of this.corpseGroups) {
@@ -750,7 +753,7 @@ export class Renderer3D {
     }
 
     // ─── Building occupant count labels (roof counters) ───
-    this.updateBuildingLabels(buildingOccupants, state);
+    this.updateOccupantDots(buildingOccupants, state);
 
     // ─── Police lights flashing ───
     for (let i = 0; i < this.specialBuildingLights.length; i++) {
@@ -852,48 +855,60 @@ export class Renderer3D {
     this.composer.render();
   }
 
-  private updateBuildingLabels(buildingOccupants: Map<number, number>, state: SimulationState): void {
-    // Track all buildings that have civilian occupants (hiding or sleeping inside)
-    const allOccupiedBuildings = new Map<number, number>();
-    for (const e of state.entities) {
-      if (e.type === 'civilian' && e.state !== 'dead' && e.buildingId !== null) {
-        allOccupiedBuildings.set(e.buildingId, (allOccupiedBuildings.get(e.buildingId) || 0) + 1);
+  private updateOccupantDots(buildingOccupants: Map<number, number>, state: SimulationState): void {
+    // Remove dots for buildings no longer occupied
+    const occupiedIds = new Set<number>();
+    for (const [bId] of buildingOccupants) {
+      if (buildingOccupants.get(bId)! > 0) occupiedIds.add(bId);
+    }
+
+    for (const [bId, meshes] of this.buildingOccupantDots.entries()) {
+      if (!occupiedIds.has(bId)) {
+        for (const m of meshes) {
+          this.scene.remove(m);
+          m.geometry.dispose();
+          (m.material as THREE.Material).dispose();
+        }
+        this.buildingOccupantDots.delete(bId);
       }
     }
 
-    // Remove labels for buildings with no occupants
-    for (const [bId, sprite] of this.buildingLabelSprites.entries()) {
-      if (!allOccupiedBuildings.has(bId)) {
-        this.scene.remove(sprite);
-        if (sprite.material.map) sprite.material.map.dispose();
-        sprite.material.dispose();
-        this.buildingLabelSprites.delete(bId);
-      }
-    }
+    const dotGeom = new THREE.PlaneGeometry(0.16, 0.16);
 
-    // Add/update labels for ALL occupied buildings
-    for (const [bId, count] of allOccupiedBuildings.entries()) {
+    for (const [bId, count] of buildingOccupants.entries()) {
+      if (count <= 0) continue;
       const b = state.buildings.find(b => b.id === bId);
       if (!b) continue;
 
-      let sprite = this.buildingLabelSprites.get(bId);
-      if (!sprite) {
-        // Create sprite with canvas texture
-        sprite = this.createBuildingLabelSprite(count);
-        sprite.position.set(b.x, b.h + 4.5, b.z);
-        this.scene.add(sprite);
-        this.buildingLabelSprites.set(bId, sprite);
-      } else {
-        // Update existing sprite
-        const canvas = sprite.material.map?.image as HTMLCanvasElement;
-        if (canvas) {
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            this.drawBuildingLabel(ctx, count);
-            sprite.material.map!.needsUpdate = true;
-          }
+      const dotCount = Math.min(count, 12);
+      const cols = Math.min(4, Math.ceil(Math.sqrt(dotCount)));
+      const rows = Math.ceil(dotCount / cols);
+      const spacing = 0.3;
+
+      let dots = this.buildingOccupantDots.get(bId);
+
+      if (!dots) {
+        dots = [];
+        const startX = -((cols - 1) * spacing) / 2;
+        const startZ = -((rows - 1) * spacing) / 2;
+
+        for (let i = 0; i < dotCount; i++) {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          const mat = new THREE.MeshBasicMaterial({
+            color: i < 2 ? 0x44aaff : 0x66ccff,
+            transparent: true,
+            opacity: 0.85,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          });
+          const dot = new THREE.Mesh(dotGeom.clone(), mat);
+          dot.position.set(b.x + startX + col * spacing, b.h + 0.06, b.z + startZ + row * spacing);
+          dot.rotation.x = -Math.PI / 2;
+          this.scene.add(dot);
+          dots.push(dot);
         }
+        this.buildingOccupantDots.set(bId, dots);
       }
     }
   }
