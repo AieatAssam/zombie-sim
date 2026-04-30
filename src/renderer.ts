@@ -18,9 +18,13 @@ export class Renderer3D {
   private entityMeshes: Map<number, THREE.Group> = new Map();
   private buildingMeshes: THREE.Mesh[] = [];
   private windowGlows: { mesh: THREE.Mesh; baseEmissive: number; x: number; z: number; buildingId: number }[] = [];
+  // Extra window parts (frames, rights, sills) not tracked in windowGlows
+  private windowExtraParts: THREE.Mesh[] = [];
   private roadMeshes: THREE.Mesh[] = [];
   private parkMeshes: THREE.Mesh[] = [];
   private treeMeshes: THREE.Mesh[] = [];
+  private bushMeshes: THREE.Mesh[] = [];
+  private debrisDots: THREE.Mesh[] = [];
   private wallMeshes: THREE.Mesh[] = [];
   private specialBuildingLights: THREE.Mesh[] = [];
   // Roof occupant indicators: small blue dots directly on building roof
@@ -44,6 +48,11 @@ export class Renderer3D {
   private dustPositions: Float32Array;
   private dustVelocities: Float32Array;
 
+  // Ember/ash particles
+  private emberParticles: THREE.Points;
+  private emberPositions: Float32Array;
+  private emberVelocities: Float32Array;
+
   // Sky / atmosphere
   private sky: THREE.Mesh;
   private stars: THREE.Points;
@@ -57,6 +66,8 @@ export class Renderer3D {
 
   // Road markings
   private roadMarkings: THREE.Line[] = [];
+  private roadCurbLines: THREE.Line[] = [];
+  private crosswalkMeshes: THREE.Mesh[] = [];
 
   // Shoot tracer lines with per-tracer fade metadata
   private tracers: THREE.Line[] = [];
@@ -142,9 +153,9 @@ export class Renderer3D {
 
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(container.clientWidth, container.clientHeight),
-      0.5,   // strength
-      0.4,   // radius
-      0.05   // threshold
+      0.6,   // strength — slightly increased for entity glow
+      0.3,   // radius — crispier glow
+      0.04   // threshold — lower to catch more glow
     );
     this.composer.addPass(bloomPass);
 
@@ -235,7 +246,7 @@ export class Renderer3D {
     this.moon.add(glowRing);
 
     // ─── Ground with higher resolution and subtle vertex color variation ───
-    const groundGeom = new THREE.PlaneGeometry(70, 70, 20, 20);
+    const groundGeom = new THREE.PlaneGeometry(70, 70, 30, 30);
     // Add subtle random tint per vertex for ground texture variation
     const posAttr = groundGeom.attributes.position;
     const colors = new Float32Array(posAttr.count * 3);
@@ -258,12 +269,41 @@ export class Renderer3D {
     this.ground.receiveShadow = true;
     this.scene.add(this.ground);
 
-    // ─── Grid helper ───
-    this.gridHelper = new THREE.GridHelper(70, 50, 0x2a3a2a, 0x1a2a1a);
+    // ─── Grid helper (finer with more divisions) ───
+    this.gridHelper = new THREE.GridHelper(70, 70, 0x2a4a2a, 0x1a2a1a);
     this.gridHelper.position.y = 0.01;
     this.gridHelper.material.transparent = true;
-    this.gridHelper.material.opacity = 0.2;
+    this.gridHelper.material.opacity = 0.15;
     this.scene.add(this.gridHelper);
+
+    // ─── Subtle ground grid texture overlay ───
+    const gridCanvas = document.createElement('canvas');
+    gridCanvas.width = 256;
+    gridCanvas.height = 256;
+    const gctx = gridCanvas.getContext('2d')!;
+    gctx.fillStyle = 'rgba(0,0,0,0)';
+    gctx.fillRect(0, 0, 256, 256);
+    gctx.strokeStyle = 'rgba(60,100,60,0.15)';
+    gctx.lineWidth = 1;
+    const gridStep = 16;
+    for (let i = 0; i <= 256; i += gridStep) {
+      gctx.beginPath(); gctx.moveTo(i, 0); gctx.lineTo(i, 256); gctx.stroke();
+      gctx.beginPath(); gctx.moveTo(0, i); gctx.lineTo(256, i); gctx.stroke();
+    }
+    const gridTex = new THREE.CanvasTexture(gridCanvas);
+    gridTex.wrapS = gridTex.wrapT = THREE.RepeatWrapping;
+    gridTex.repeat.set(4, 4);
+    const gridOverlayMat = new THREE.MeshBasicMaterial({
+      map: gridTex,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const gridOverlay = new THREE.Mesh(new THREE.PlaneGeometry(70, 70), gridOverlayMat);
+    gridOverlay.rotation.x = -Math.PI / 2;
+    gridOverlay.position.y = 0.015;
+    this.scene.add(gridOverlay);
 
     // ─── Night overlay ───
     const overlayGeom = new THREE.PlaneGeometry(140, 140);
@@ -280,13 +320,13 @@ export class Renderer3D {
     this.scene.add(this.nightOverlay);
 
     // ─── Entity geometry cache ───
-    this.civilianGeom = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 12, 3);
-    this.civilianHeadGeom = new THREE.SphereGeometry(0.18, 12, 8);
-    this.zombieGeom = new THREE.ConeGeometry(0.35, 0.75, 10);
-    this.militaryGeom = new THREE.BoxGeometry(0.45, 0.6, 0.45, 2, 2, 2);
-    this.antennaGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.2, 3);
+    this.civilianGeom = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 16, 6);
+    this.civilianHeadGeom = new THREE.SphereGeometry(0.18, 16, 12);
+    this.zombieGeom = new THREE.ConeGeometry(0.35, 0.75, 14);
+    this.militaryGeom = new THREE.BoxGeometry(0.45, 0.6, 0.45, 3, 3, 3);
+    this.antennaGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.2, 5);
     this.noAmmoIndicatorGeom = new THREE.ConeGeometry(0.08, 0.12, 3);
-    this.starvingIndicatorGeom = new THREE.ConeGeometry(0.15, 0.25, 6);
+    this.starvingIndicatorGeom = new THREE.ConeGeometry(0.15, 0.25, 8);
     this.occupantDotGeom = new THREE.PlaneGeometry(0.5, 0.5, 2, 2);
 
     // ─── Particle system (effects) ───
@@ -319,7 +359,7 @@ export class Renderer3D {
     this.scene.add(this.particles);
 
     // ─── Ambient dust particles ───
-    const DUST_COUNT = 400;
+    const DUST_COUNT = 600;
     this.dustPositions = new Float32Array(DUST_COUNT * 3);
     this.dustVelocities = new Float32Array(DUST_COUNT * 3);
     const dustSizes = new Float32Array(DUST_COUNT);
@@ -330,22 +370,51 @@ export class Renderer3D {
       this.dustVelocities[i * 3] = (Math.random() - 0.5) * 0.3;
       this.dustVelocities[i * 3 + 1] = (Math.random() - 0.5) * 0.1;
       this.dustVelocities[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
-      dustSizes[i] = 0.1 + Math.random() * 0.2;
+      dustSizes[i] = 0.12 + Math.random() * 0.25;
     }
     const dustGeom = new THREE.BufferGeometry();
     dustGeom.setAttribute('position', new THREE.BufferAttribute(this.dustPositions, 3));
     dustGeom.setAttribute('size', new THREE.BufferAttribute(dustSizes, 1));
     const dustMat = new THREE.PointsMaterial({
-      color: 0xaaaacc,
-      size: 0.15,
+      color: 0xcceeff,
+      size: 0.18,
       transparent: true,
-      opacity: 0.15,
+      opacity: 0.2,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       sizeAttenuation: true,
     });
     this.dustParticles = new THREE.Points(dustGeom, dustMat);
     this.scene.add(this.dustParticles);
+
+    // ─── Ember/ash particles near buildings (orange, slowly rising) ───
+    const EMBER_COUNT = 100;
+    this.emberPositions = new Float32Array(EMBER_COUNT * 3);
+    this.emberVelocities = new Float32Array(EMBER_COUNT * 3);
+    const emberSizes = new Float32Array(EMBER_COUNT);
+    for (let i = 0; i < EMBER_COUNT; i++) {
+      this.emberPositions[i * 3] = (Math.random() - 0.5) * 50;
+      this.emberPositions[i * 3 + 1] = Math.random() * 8 + 0.5;
+      this.emberPositions[i * 3 + 2] = (Math.random() - 0.5) * 50;
+      this.emberVelocities[i * 3] = (Math.random() - 0.5) * 0.15;
+      this.emberVelocities[i * 3 + 1] = 0.2 + Math.random() * 0.3;
+      this.emberVelocities[i * 3 + 2] = (Math.random() - 0.5) * 0.15;
+      emberSizes[i] = 0.04 + Math.random() * 0.08;
+    }
+    const emberGeom = new THREE.BufferGeometry();
+    emberGeom.setAttribute('position', new THREE.BufferAttribute(this.emberPositions, 3));
+    emberGeom.setAttribute('size', new THREE.BufferAttribute(emberSizes, 1));
+    const emberMat = new THREE.PointsMaterial({
+      color: 0xff6633,
+      size: 0.1,
+      transparent: true,
+      opacity: 0.3,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      sizeAttenuation: true,
+    });
+    this.emberParticles = new THREE.Points(emberGeom, emberMat);
+    this.scene.add(this.emberParticles);
 
     // Resize
     window.addEventListener('resize', () => {
@@ -373,16 +442,16 @@ export class Renderer3D {
       this.roadMeshes.push(mesh);
     }
 
-    // Road center markings with higher detail
-    const dashMat = new THREE.LineBasicMaterial({ color: 0xddddaa, transparent: true, opacity: 0.25 });
+    // Road center markings — brighter and more visible
+    const dashMat = new THREE.LineBasicMaterial({ color: 0xffffee, transparent: true, opacity: 0.4 });
     for (const r of state.map.roads) {
       if (r.w > 2.8 || r.d > 2.8) {
         const isHorizontal = r.w > r.d;
         const len = isHorizontal ? r.w : r.d;
-        const segments = Math.floor(len / 0.6);
+        const segments = Math.floor(len / 0.5);
         for (let s = 0; s < segments; s += 2) {
-          const start = -len / 2 + s * 0.6;
-          const end = start + 0.35;
+          const start = -len / 2 + s * 0.5;
+          const end = start + 0.3;
           const pts: THREE.Vector3[] = [];
           if (isHorizontal) {
             pts.push(new THREE.Vector3(r.x + start, 0.03, r.z));
@@ -399,10 +468,78 @@ export class Renderer3D {
       }
     }
 
+    // Road curb lines — thin white lines along road edges
+    const curbMat = new THREE.LineBasicMaterial({ color: 0xdddddd, transparent: true, opacity: 0.15 });
+    for (const r of state.map.roads) {
+      if (r.w > 2.8 || r.d > 2.8) {
+        const isHorizontal = r.w > r.d;
+        const halfLen = (isHorizontal ? r.w : r.d) / 2;
+        const offset = 0.4;
+        if (isHorizontal) {
+          // Two lines along z-edges
+          const pts1 = [new THREE.Vector3(r.x - halfLen, 0.025, r.z - offset), new THREE.Vector3(r.x + halfLen, 0.025, r.z - offset)];
+          const pts2 = [new THREE.Vector3(r.x - halfLen, 0.025, r.z + offset), new THREE.Vector3(r.x + halfLen, 0.025, r.z + offset)];
+          const g1 = new THREE.BufferGeometry().setFromPoints(pts1);
+          const g2 = new THREE.BufferGeometry().setFromPoints(pts2);
+          const l1 = new THREE.Line(g1, curbMat); this.scene.add(l1); this.roadCurbLines.push(l1);
+          const l2 = new THREE.Line(g2, curbMat); this.scene.add(l2); this.roadCurbLines.push(l2);
+        } else {
+          const pts1 = [new THREE.Vector3(r.x - offset, 0.025, r.z - halfLen), new THREE.Vector3(r.x - offset, 0.025, r.z + halfLen)];
+          const pts2 = [new THREE.Vector3(r.x + offset, 0.025, r.z - halfLen), new THREE.Vector3(r.x + offset, 0.025, r.z + halfLen)];
+          const g1 = new THREE.BufferGeometry().setFromPoints(pts1);
+          const g2 = new THREE.BufferGeometry().setFromPoints(pts2);
+          const l1 = new THREE.Line(g1, curbMat); this.scene.add(l1); this.roadCurbLines.push(l1);
+          const l2 = new THREE.Line(g2, curbMat); this.scene.add(l2); this.roadCurbLines.push(l2);
+        }
+      }
+    }
+
+    // Crosswalk markings at intersections (where two major roads cross)
+    const crosswalkMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.15,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    // Find intersection points (roads crossing each other)
+    for (let i = 0; i < state.map.roads.length; i++) {
+      for (let j = i + 1; j < state.map.roads.length; j++) {
+        const a = state.map.roads[i];
+        const b = state.map.roads[j];
+        // Check if they cross (one horizontal, one vertical)
+        const aHoriz = a.w > a.d;
+        const bHoriz = b.w > b.d;
+        if (aHoriz === bHoriz) continue;
+        // Check proximity
+        const dx = Math.abs(a.x - b.x);
+        const dz = Math.abs(a.z - b.z);
+        if (dx < 1.5 && dz < 1.5) {
+          // Add crosswalk stripes at this intersection
+          for (let s = 0; s < 5; s++) {
+            const stripe = new THREE.Mesh(
+              new THREE.PlaneGeometry(0.08, 0.35),
+              crosswalkMat
+            );
+            const offset = (s - 2) * 0.2;
+            if (aHoriz) {
+              stripe.position.set(a.x + offset, 0.04, a.z);
+              stripe.rotation.x = -Math.PI / 2;
+            } else {
+              stripe.position.set(b.x + offset, 0.04, b.z);
+              stripe.rotation.x = -Math.PI / 2;
+            }
+            this.scene.add(stripe);
+            this.crosswalkMeshes.push(stripe);
+          }
+        }
+      }
+    }
+
     // Parks
     const parkMat = new THREE.MeshStandardMaterial({ color: 0x2d5a27, roughness: 1.0 });
     for (const p of state.map.parks) {
-      const geom = new THREE.CircleGeometry(p.r * 0.8, 12);
+      const geom = new THREE.CircleGeometry(p.r * 0.8, 24);
       const mesh = new THREE.Mesh(geom, parkMat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set(p.x, 0.02, p.z);
@@ -413,7 +550,7 @@ export class Renderer3D {
         const tx = p.x + (Math.random() - 0.5) * p.r * 1.5;
         const tz = p.z + (Math.random() - 0.5) * p.r * 1.5;
         const trunk = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.06, 0.12, 0.5 + Math.random() * 0.4, 4),
+          new THREE.CylinderGeometry(0.06, 0.12, 0.5 + Math.random() * 0.4, 6),
           new THREE.MeshStandardMaterial({ color: 0x4a3520, roughness: 1 })
         );
         trunk.position.set(tx, 0.25, tz);
@@ -421,15 +558,32 @@ export class Renderer3D {
         this.scene.add(trunk);
         this.treeMeshes.push(trunk);
 
-        const crownH = 0.3 + Math.random() * 0.25;
+        // Fuller tree crown with ConeGeometry (12 segments)
+        const crownH = 0.4 + Math.random() * 0.3;
+        const crownR = 0.2 + Math.random() * 0.15;
         const crown = new THREE.Mesh(
-          new THREE.SphereGeometry(crownH, 6, 6),
+          new THREE.ConeGeometry(crownR, crownH, 12),
           new THREE.MeshStandardMaterial({ color: 0x2d6a2e, roughness: 0.8 })
         );
-        crown.position.set(tx, 0.6 + Math.random() * 0.3, tz);
+        crown.position.set(tx, 0.55 + Math.random() * 0.3, tz);
         crown.castShadow = true;
         this.scene.add(crown);
         this.treeMeshes.push(crown);
+      }
+      // Small green bush dots scattered in park
+      const bushMat = new THREE.MeshStandardMaterial({ color: 0x3a8a3b, roughness: 1.0 });
+      for (let bi = 0; bi < 8; bi++) {
+        const bx = p.x + (Math.random() - 0.5) * p.r * 1.3;
+        const bz = p.z + (Math.random() - 0.5) * p.r * 1.3;
+        const bushR = 0.06 + Math.random() * 0.08;
+        const bush = new THREE.Mesh(
+          new THREE.SphereGeometry(bushR, 6, 5),
+          bushMat
+        );
+        bush.position.set(bx, 0.06, bz);
+        bush.castShadow = true;
+        this.scene.add(bush);
+        this.bushMeshes.push(bush);
       }
     }
 
@@ -449,7 +603,7 @@ export class Renderer3D {
         emissive: b.type === 'police' ? new THREE.Color(0x224466) : new THREE.Color(0x000000),
         emissiveIntensity: b.type === 'police' ? 0.15 : 0,
       });
-      const geom = new THREE.BoxGeometry(b.w, b.h, b.d, 4, 4, 4);
+      const geom = new THREE.BoxGeometry(b.w, b.h, b.d, 6, 6, 6);
       const mesh = new THREE.Mesh(geom, mat);
       mesh.position.set(b.x, b.h / 2, b.z);
       mesh.castShadow = true;
@@ -476,17 +630,56 @@ export class Renderer3D {
         emissive: roofCol,
         emissiveIntensity: 0.05,
       });
-      const roof = new THREE.Mesh(new THREE.PlaneGeometry(b.w * 0.95, b.d * 0.95, 4, 4), roofMat2);
+      const roof = new THREE.Mesh(new THREE.PlaneGeometry(b.w * 0.95, b.d * 0.95, 8, 8), roofMat2);
       roof.rotation.x = -Math.PI / 2;
       roof.position.set(b.x, b.h + 0.05, b.z);
       this.scene.add(roof);
       this.buildingMeshes.push(roof);
 
+      // Roof edge trim — thin raised border
+      const trimMat = new THREE.MeshStandardMaterial({
+        color: roofCol,
+        roughness: 0.6,
+        metalness: 0.2,
+        emissive: roofCol,
+        emissiveIntensity: 0.02,
+      });
+      const trimH = 0.06;
+      const trimW = 0.08;
+      // Four strips around roof edge
+      const trimPositions = [
+        { x: b.x, z: b.z - b.d / 2 + 0.05, w: b.w + 0.1, d: trimW }, // front
+        { x: b.x, z: b.z + b.d / 2 - 0.05, w: b.w + 0.1, d: trimW }, // back
+        { x: b.x - b.w / 2 + 0.05, z: b.z, w: trimW, d: b.d + 0.1 }, // left
+        { x: b.x + b.w / 2 - 0.05, z: b.z, w: trimW, d: b.d + 0.1 }, // right
+      ];
+      for (const tp of trimPositions) {
+        const trim = new THREE.Mesh(new THREE.BoxGeometry(tp.w, trimH, tp.d), trimMat);
+        trim.position.set(tp.x, b.h + trimH / 2, tp.z);
+        this.scene.add(trim);
+        this.buildingMeshes.push(trim);
+      }
+
+      // Door marker — small dark rectangle at base of front side
+      if (b.w > 1.5 && b.d > 1.5) {
+        const doorMat = new THREE.MeshStandardMaterial({
+          color: 0x1a1a1a,
+          roughness: 0.9,
+          metalness: 0.0,
+        });
+        const doorW = b.w * 0.22;
+        const doorH = 0.35;
+        const door = new THREE.Mesh(new THREE.PlaneGeometry(doorW, doorH), doorMat);
+        door.position.set(b.x, doorH / 2, b.z + b.d / 2 + 0.01);
+        this.scene.add(door);
+        this.buildingMeshes.push(door);
+      }
+
       // Ground-contact shadow/glow at building base for ambient occlusion
       const contactMat = new THREE.MeshBasicMaterial({
         color: 0x000000,
         transparent: true,
-        opacity: 0.08,
+        opacity: 0.12,
         depthWrite: false,
       });
       const contactShadow = new THREE.Mesh(
@@ -533,7 +726,7 @@ export class Renderer3D {
       }
 
 
-      // Windows with glow at night — 4 sides, more windows
+      // Windows with glow — casement pairs with sill, warm night glow
       const hasWindows = b.type !== 'warehouse';
       if (hasWindows) {
         const winCountX = Math.max(2, Math.floor(b.w / 0.6));
@@ -549,19 +742,76 @@ export class Renderer3D {
           for (const side of sides) {
             for (let wi = 0; wi < side.count; wi++) {
               const { wx, wz, rotY } = side.getPos(wi);
+              // Casement window: pair of smaller quads side by side
+              const winW = 0.14;
+              const winH = 0.2;
+              const gap = 0.02;
+              // Warm night glow color (yellow-orange instead of blue-white)
+              const warmColor = new THREE.Color(0xffcc66);
               const winMat = new THREE.MeshStandardMaterial({
                 color: 0x88aaff,
-                emissive: 0x88ccff,
+                emissive: warmColor,
                 emissiveIntensity: 0.1,
+                transparent: true,
+                opacity: 0.25,
+              });
+              // Left casement
+              const winL = new THREE.Mesh(new THREE.PlaneGeometry(winW, winH), winMat);
+              // Right casement
+              const winR = new THREE.Mesh(new THREE.PlaneGeometry(winW, winH), winMat);
+              // Window frame (dark border around the pair)
+              const frameMat = new THREE.MeshBasicMaterial({
+                color: 0x3a3a4a,
+                transparent: true,
+                opacity: 0.4,
+              });
+              const frame = new THREE.Mesh(
+                new THREE.PlaneGeometry(winW * 2 + gap + 0.04, winH + 0.04),
+                frameMat
+              );
+              // Position: frame behind, casements on top
+              const offset = 0.001;
+              if (rotY === 0 || rotY === Math.PI) {
+                winL.position.set(wx - winW / 2 - gap / 2, wy, wz + offset);
+                winR.position.set(wx + winW / 2 + gap / 2, wy, wz + offset);
+                frame.position.set(wx, wy, wz);
+              } else {
+                winL.position.set(wx + offset, wy, wz - winW / 2 - gap / 2);
+                winR.position.set(wx + offset, wy, wz + winW / 2 + gap / 2);
+                frame.position.set(wx, wy, wz);
+              }
+              // Sill: thin horizontal bar at bottom
+              const sillMat = new THREE.MeshBasicMaterial({
+                color: 0x4a4a5a,
                 transparent: true,
                 opacity: 0.3,
               });
-              const win = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.25), winMat);
-              win.position.set(wx, wy, wz);
-              win.rotation.y = rotY;
-              this.scene.add(win);
+              const sill = new THREE.Mesh(
+                new THREE.PlaneGeometry(winW * 2 + gap + 0.08, 0.03),
+                sillMat
+              );
+              if (rotY === 0 || rotY === Math.PI) {
+                winL.rotation.y = rotY;
+                winR.rotation.y = rotY;
+                frame.rotation.y = rotY;
+                sill.position.set(wx, wy - winH / 2 - 0.02, wz);
+                sill.rotation.y = rotY;
+              } else {
+                winL.rotation.y = rotY;
+                winR.rotation.y = rotY;
+                frame.rotation.y = rotY;
+                sill.position.set(wx, wy - winH / 2 - 0.02, wz);
+                sill.rotation.y = rotY;
+              }
+              this.scene.add(frame);
+              this.scene.add(winL);
+              this.scene.add(winR);
+              this.scene.add(sill);
+              // Track extra window parts for cleanup
+              this.windowExtraParts.push(frame, winR, sill);
+              // Track all window meshes for glow (track left casement as representative)
               this.windowGlows.push({
-                mesh: win,
+                mesh: winL,
                 baseEmissive: 0.1 + Math.random() * 0.3,
                 x: b.x,
                 z: b.z,
@@ -570,6 +820,30 @@ export class Renderer3D {
             }
           }
         }
+      }
+    }
+
+    // Debris dots scattered on ground near buildings
+    const debrisMat = new THREE.MeshBasicMaterial({
+      color: 0x3a3a3a,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    for (const b of state.buildings) {
+      const debrisCount = 3 + Math.floor(Math.random() * 5);
+      for (let di = 0; di < debrisCount; di++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = (Math.random() * 0.8 + 0.1);
+        const dx = Math.cos(angle) * (b.w / 2 + dist);
+        const dz = Math.sin(angle) * (b.d / 2 + dist);
+        const r = 0.03 + Math.random() * 0.05;
+        const dot = new THREE.Mesh(new THREE.CircleGeometry(r, 6), debrisMat);
+        dot.rotation.x = -Math.PI / 2;
+        dot.position.set(b.x + dx, 0.03, b.z + dz);
+        this.scene.add(dot);
+        this.debrisDots.push(dot);
       }
     }
 
@@ -591,7 +865,7 @@ export class Renderer3D {
   }
 
   private clearMeshes(): void {
-    const all = [...this.buildingMeshes, ...this.roadMeshes, ...this.parkMeshes, ...this.treeMeshes, ...this.wallMeshes, ...this.bloodDecals, ...this.specialBuildingLights];
+    const all = [...this.buildingMeshes, ...this.roadMeshes, ...this.parkMeshes, ...this.treeMeshes, ...this.wallMeshes, ...this.bloodDecals, ...this.specialBuildingLights, ...this.bushMeshes, ...this.debrisDots];
     for (const m of all) {
       this.scene.remove(m);
       if (m.geometry) m.geometry.dispose();
@@ -604,19 +878,41 @@ export class Renderer3D {
     this.wallMeshes = [];
     this.bloodDecals = [];
     this.specialBuildingLights = [];
+    this.bushMeshes = [];
+    this.debrisDots = [];
 
     for (const wg of this.windowGlows) {
       this.scene.remove(wg.mesh);
       wg.mesh.geometry.dispose();
       (wg.mesh.material as THREE.Material).dispose();
     }
+    // Clean up extra window parts (frames, right casements, sills)
+    for (const ep of this.windowExtraParts) {
+      this.scene.remove(ep);
+      ep.geometry.dispose();
+      (ep.material as THREE.Material).dispose();
+    }
     this.windowGlows = [];
+    this.windowExtraParts = [];
 
     for (const m of this.roadMarkings) {
       this.scene.remove(m);
       m.geometry.dispose();
     }
     this.roadMarkings = [];
+
+    for (const m of this.roadCurbLines) {
+      this.scene.remove(m);
+      m.geometry.dispose();
+    }
+    this.roadCurbLines = [];
+
+    for (const m of this.crosswalkMeshes) {
+      this.scene.remove(m);
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    this.crosswalkMeshes = [];
 
     for (const t of this.tracers) {
       this.scene.remove(t);
@@ -763,6 +1059,9 @@ export class Renderer3D {
 
     // ─── Update ambient dust ───
     this.updateDustParticles(dt, dayFactor);
+
+    // ─── Update ember particles ───
+    this.updateEmberParticles(dt, state);
 
     // ─── Blood decal cleanup ───
     if (this.bloodDecals.length > 100) {
@@ -1078,7 +1377,7 @@ export class Renderer3D {
         roughness: 0.3,
         metalness: 0.1,
         emissive: col,
-        emissiveIntensity: 0.15,
+        emissiveIntensity: 0.25,
       });
       const body = new THREE.Mesh(this.civilianGeom, bodyMat);
       body.position.y = 0.25;
@@ -1168,7 +1467,7 @@ export class Renderer3D {
         roughness: 0.5,
         metalness: 0.3,
         emissive: col,
-        emissiveIntensity: 0.15,
+        emissiveIntensity: 0.3,
       });
       const body = new THREE.Mesh(this.militaryGeom, bodyMat);
       body.position.y = 0.22;
@@ -1259,7 +1558,8 @@ export class Renderer3D {
     const pos = this.dustPositions;
     const vel = this.dustVelocities;
     const dustMat = this.dustParticles.material as THREE.PointsMaterial;
-    dustMat.opacity = 0.08 + (1 - dayFactor) * 0.1;
+    // More visible during day too — bring up min opacity
+    dustMat.opacity = 0.12 + (1 - dayFactor) * 0.1;
 
     for (let i = 0; i < pos.length / 3; i++) {
       pos[i * 3] += vel[i * 3] * dt;
@@ -1274,6 +1574,32 @@ export class Renderer3D {
       if (pos[i * 3 + 1] < 0) pos[i * 3 + 1] = 10;
     }
     (this.dustParticles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+  }
+
+  private updateEmberParticles(dt: number, state: SimulationState): void {
+    const pos = this.emberPositions;
+    const vel = this.emberVelocities;
+    const emberMat = this.emberParticles.material as THREE.PointsMaterial;
+    const isNight = state.timeOfDay > 0.65 || state.timeOfDay < 0.08;
+    emberMat.opacity = isNight ? 0.4 : 0.15;
+
+    for (let i = 0; i < pos.length / 3; i++) {
+      pos[i * 3] += vel[i * 3] * dt;
+      pos[i * 3 + 1] += vel[i * 3 + 1] * dt;
+      pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
+
+      // Slowly drift horizontally with gentle sine
+      vel[i * 3] += Math.sin(state.totalTime * 0.5 + i) * 0.01 * dt;
+      vel[i * 3 + 2] += Math.cos(state.totalTime * 0.5 + i * 0.7) * 0.01 * dt;
+
+      if (pos[i * 3] > 25) pos[i * 3] = -25;
+      if (pos[i * 3] < -25) pos[i * 3] = 25;
+      if (pos[i * 3 + 2] > 25) pos[i * 3 + 2] = -25;
+      if (pos[i * 3 + 2] < -25) pos[i * 3 + 2] = 25;
+      if (pos[i * 3 + 1] > 10) { pos[i * 3 + 1] = 0.5; }
+      if (pos[i * 3 + 1] < 0) pos[i * 3 + 1] = 8 + Math.random() * 2;
+    }
+    (this.emberParticles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
   }
 
   private updateTracers(dt: number): void {
