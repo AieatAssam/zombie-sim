@@ -43,6 +43,9 @@ let lastProcessedEvents = new Set<string>();
 let legendVisible = true;
 let legendTimer = 0;
 
+// ─── Event log append-only tracking ───
+let lastEventCount = 0;
+
 // ─── Slow-motion tracking ───
 let slowMoActive = false;
 let slowMoTimer = 0;
@@ -216,15 +219,18 @@ function drawChart(): void {
 
 // ─── Events ───
 function updateEvents(): void {
-  const events = sim.getRecentEvents(30);
-  eventList.innerHTML = '';
-  for (const ev of events) {
+  const events = sim.getRecentEvents(100);
+  // Only append NEW events
+  for (let i = lastEventCount; i < events.length; i++) {
+    const ev = events[i];
     const div = document.createElement('div');
     div.className = `event-entry ${ev.type}`;
     div.textContent = `[D${ev.day}] ${ev.text}`;
     eventList.appendChild(div);
   }
-  eventList.scrollTop = 0;
+  lastEventCount = events.length;
+  // Auto-scroll to bottom for new events
+  eventList.scrollTop = eventList.scrollHeight;
 }
 
 // ─── Notifications ───
@@ -345,7 +351,6 @@ function gameLoop(time: number): void {
   }
 
   // ─── Game over screen ───
-  const gameOverDiv = document.getElementById('gameover')!;
   if (sim.state.gameOver) {
     gameOverDiv.style.display = 'flex';
     const box = gameOverDiv.querySelector('.gameover-box') as HTMLElement;
@@ -439,6 +444,7 @@ btnReset.addEventListener('click', () => {
   milestonesShown.clear();
   prevZombieCount = 0;
   prevCivilianCount = 400;
+  lastEventCount = 0;
 });
 
 btnCamera.addEventListener('click', () => {
