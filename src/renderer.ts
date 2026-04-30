@@ -1,7 +1,10 @@
-// 3D Renderer v2 — Three.js scene, effects, and visuals
+// 3D Renderer v3 — Three.js scene, bloom, enhanced visuals
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { SimulationState, Entity } from './simulation';
 
 export class Renderer3D {
@@ -9,13 +12,16 @@ export class Renderer3D {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
+  composer: EffectComposer;
 
-  private entityMeshes: Map<number, THREE.Mesh> = new Map();
+  private entityMeshes: Map<number, THREE.Group> = new Map();
   private buildingMeshes: THREE.Mesh[] = [];
+  private windowGlows: { mesh: THREE.Mesh; baseEmissive: number }[] = [];
   private roadMeshes: THREE.Mesh[] = [];
   private parkMeshes: THREE.Mesh[] = [];
   private treeMeshes: THREE.Mesh[] = [];
   private wallMeshes: THREE.Mesh[] = [];
+  private specialBuildingLights: THREE.Mesh[] = [];
 
   private ambient: THREE.AmbientLight;
   private directional: THREE.DirectionalLight;
@@ -30,6 +36,11 @@ export class Renderer3D {
   private particleData: { vx: number; vz: number; life: number; maxLife: number; r: number; g: number; b: number }[] = [];
   private particleIdx = 0;
 
+  // Ambient dust particles
+  private dustParticles: THREE.Points;
+  private dustPositions: Float32Array;
+  private dustVelocities: Float32Array;
+
   // Zombie glow
   private glowParticles: THREE.Points;
   private glowPositions: Float32Array;
@@ -39,17 +50,38 @@ export class Renderer3D {
   private sky: THREE.Mesh;
   private stars: THREE.Points;
   private starPositions: Float32Array;
+  private moon: THREE.Mesh;
 
   // Ground
   private ground: THREE.Mesh;
   private nightOverlay: THREE.Mesh;
+  private gridHelper: THREE.GridHelper;
+
+  // Road markings
+  private roadMarkings: THREE.Line[] = [];
 
   // Shoot tracer lines
   private tracers: THREE.Line[] = [];
 
-  // Blood decals (small colored circles on ground)
+  // Blood decals
   private bloodDecals: THREE.Mesh[] = [];
   private decalCount = 0;
+
+  // Screen shake
+  private shakeIntensity = 0;
+  private shakeDuration = 0;
+  private shakeTimer = 0;
+  private originalCamPos = new THREE.Vector3();
+
+  // Entity geometry caches
+  private civilianGeom: THREE.BufferGeometry;
+  private civilianHeadGeom: THREE.BufferGeometry;
+  private zombieGeom: THREE.BufferGeometry;
+  private militaryGeom: THREE.BufferGeometry;
+  private antennaGeom: THREE.BufferGeometry;
+
+  // Building light meshes at night
+  private buildingWindowLights: { mesh: THREE.Mesh; x: number; z: number }[] = [];
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -81,6 +113,19 @@ export class Renderer3D {
     this.controls.maxDistance = 100;
     this.controls.target.set(0, 0, 0);
 
+    // ─── Composer with Bloom ───
+    this.composer = new EffectComposer(this.renderer);
+    const renderPass = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(renderPass);
+
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(container.clientWidth, container.clientHeight),
+      0.3,   // strength — subtle bloom for atmosphere
+      0.5,   // radius
+      0.1    // threshold
+    );
+    this.composer.addPass(bloomPass);
+
     // ─── Lights ───
     this.hemisphere = new THREE.HemisphereLight(0x87CEEB, 0x3a2a1a, 0.6);
     this.scene.add(this.hemisphere);
@@ -101,7 +146,7 @@ export class Renderer3D {
     this.scene.add(this.directional);
 
     // ─── Sky dome ───
-    const skyGeom = new THREE.SphereGeometry(90, 20, 20);
+    const skyGeom = new THREE.SphereGeometry(90, 32, 32);
     const skyMat = new THREE.MeshBasicMaterial({
       color: 0x0a0a2a,
       side: THREE.BackSide,
@@ -111,23 +156,52 @@ export class Renderer3D {
 
     // ─── Stars ───
     const starGeom = new THREE.BufferGeometry();
-    this.starPositions = new Float32Array(2000 * 3);
-    for (let i = 0; i < 2000; i++) {
+    this.starPositions = new Float32Array(3000 * 3);
+    const starSizes = new Float32Array(3000);
+    for (let i = 0; i < 3000; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       const r = 85 + Math.random() * 5;
       this.starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-      this.starPositions[i * 3 + 1] = Math.abs(r * Math.cos(phi)); // Only upper hemisphere
+      this.starPositions[i * 3 + 1] = Math.abs(r * Math.cos(phi));
       this.starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+      starSizes[i] = 0.1 + Math.random() * 0.4;
     }
     starGeom.setAttribute('position', new THREE.BufferAttribute(this.starPositions, 3));
+    starGeom.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
     this.stars = new THREE.Points(starGeom, new THREE.PointsMaterial({
       color: 0xffffff,
       size: 0.3,
       transparent: true,
       opacity: 0,
+      sizeAttenuation: true,
     }));
     this.scene.add(this.stars);
+
+    // ─── Moon ───
+    const moonGeom = new THREE.CircleGeometry(1.5, 16);
+    const moonMat = new THREE.MeshBasicMaterial({
+      color: 0xeeeedd,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+    });
+    this.moon = new THREE.Mesh(moonGeom, moonMat);
+    this.moon.position.set(25, 65, -20);
+    this.scene.add(this.moon);
+
+    // Moon glow ring
+    const glowRingGeom = new THREE.RingGeometry(1.6, 2.8, 24);
+    const glowRingMat = new THREE.MeshBasicMaterial({
+      color: 0xaaccff,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+    });
+    const glowRing = new THREE.Mesh(glowRingGeom, glowRingMat);
+    glowRing.position.copy(this.moon.position);
+    glowRing.lookAt(0, 0, 0);
+    this.moon.add(glowRing);
 
     // ─── Ground ───
     const groundGeom = new THREE.PlaneGeometry(70, 70);
@@ -141,6 +215,13 @@ export class Renderer3D {
     this.ground.position.y = -0.1;
     this.ground.receiveShadow = true;
     this.scene.add(this.ground);
+
+    // ─── Grid helper ───
+    this.gridHelper = new THREE.GridHelper(70, 30, 0x2a3a2a, 0x1a2a1a);
+    this.gridHelper.position.y = 0.01;
+    this.gridHelper.material.transparent = true;
+    this.gridHelper.material.opacity = 0.2;
+    this.scene.add(this.gridHelper);
 
     // ─── Night overlay ───
     const overlayGeom = new THREE.PlaneGeometry(140, 140);
@@ -156,7 +237,17 @@ export class Renderer3D {
     this.nightOverlay.rotation.x = -Math.PI / 2;
     this.scene.add(this.nightOverlay);
 
-    // ─── Particle system ───
+    // ─── Entity geometry cache ───
+    // Civilian: cylinder with sphere head
+    this.civilianGeom = new THREE.CylinderGeometry(0.15, 0.2, 0.5, 6);
+    this.civilianHeadGeom = new THREE.SphereGeometry(0.12, 6, 6);
+    // Zombie: cone/diamond shape
+    this.zombieGeom = new THREE.ConeGeometry(0.25, 0.55, 5);
+    // Military: box with antenna
+    this.militaryGeom = new THREE.BoxGeometry(0.3, 0.45, 0.3);
+    this.antennaGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.2, 3);
+
+    // ─── Particle system (effects) ───
     this.particleGeom = new THREE.BufferGeometry();
     const PARTICLE_COUNT = 2000;
     this.particlePositions = new Float32Array(PARTICLE_COUNT * 3);
@@ -185,6 +276,35 @@ export class Renderer3D {
     this.particles = new THREE.Points(this.particleGeom, particleMat);
     this.scene.add(this.particles);
 
+    // ─── Ambient dust particles ───
+    const DUST_COUNT = 400;
+    this.dustPositions = new Float32Array(DUST_COUNT * 3);
+    this.dustVelocities = new Float32Array(DUST_COUNT * 3);
+    const dustSizes = new Float32Array(DUST_COUNT);
+    for (let i = 0; i < DUST_COUNT; i++) {
+      this.dustPositions[i * 3] = (Math.random() - 0.5) * 60;
+      this.dustPositions[i * 3 + 1] = Math.random() * 10 + 1;
+      this.dustPositions[i * 3 + 2] = (Math.random() - 0.5) * 60;
+      this.dustVelocities[i * 3] = (Math.random() - 0.5) * 0.3;
+      this.dustVelocities[i * 3 + 1] = (Math.random() - 0.5) * 0.1;
+      this.dustVelocities[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
+      dustSizes[i] = 0.1 + Math.random() * 0.2;
+    }
+    const dustGeom = new THREE.BufferGeometry();
+    dustGeom.setAttribute('position', new THREE.BufferAttribute(this.dustPositions, 3));
+    dustGeom.setAttribute('size', new THREE.BufferAttribute(dustSizes, 1));
+    const dustMat = new THREE.PointsMaterial({
+      color: 0xaaaacc,
+      size: 0.15,
+      transparent: true,
+      opacity: 0.15,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      sizeAttenuation: true,
+    });
+    this.dustParticles = new THREE.Points(dustGeom, dustMat);
+    this.scene.add(this.dustParticles);
+
     // ─── Zombie glow particles ───
     const glowGeom = new THREE.BufferGeometry();
     this.glowPositions = new Float32Array(2000 * 3);
@@ -210,6 +330,7 @@ export class Renderer3D {
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(w, h);
+      this.composer.setSize(w, h);
     });
   }
 
@@ -227,10 +348,42 @@ export class Renderer3D {
       this.roadMeshes.push(mesh);
     }
 
+    // Road center markings (dashed white lines on main roads)
+    const roadCells: { x: number; z: number; w: number; d: number }[] = [];
+    for (const r of state.map.roads) {
+      // Only add markings on larger road segments
+      if (r.w > 2.8 || r.d > 2.8) {
+        roadCells.push(r);
+      }
+    }
+    // Create dashed center lines
+    const dashMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.15 });
+    for (const rc of roadCells) {
+      const isHorizontal = rc.w > rc.d;
+      const len = isHorizontal ? rc.w : rc.d;
+      const segments = Math.floor(len / 0.6);
+      for (let s = 0; s < segments; s += 2) {
+        const start = -len / 2 + s * 0.6;
+        const end = start + 0.3;
+        const pts: THREE.Vector3[] = [];
+        if (isHorizontal) {
+          pts.push(new THREE.Vector3(rc.x + start, 0.03, rc.z));
+          pts.push(new THREE.Vector3(rc.x + end, 0.03, rc.z));
+        } else {
+          pts.push(new THREE.Vector3(rc.x, 0.03, rc.z + start));
+          pts.push(new THREE.Vector3(rc.x, 0.03, rc.z + end));
+        }
+        const g = new THREE.BufferGeometry().setFromPoints(pts);
+        const line = new THREE.Line(g, dashMat);
+        this.scene.add(line);
+        this.roadMarkings.push(line);
+      }
+    }
+
     // Parks
     const parkMat = new THREE.MeshStandardMaterial({ color: 0x2d5a27, roughness: 1.0 });
     for (const p of state.map.parks) {
-      const geom = new THREE.CircleGeometry(p.r * 0.8, 8);
+      const geom = new THREE.CircleGeometry(p.r * 0.8, 12);
       const mesh = new THREE.Mesh(geom, parkMat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set(p.x, 0.02, p.z);
@@ -252,7 +405,7 @@ export class Renderer3D {
 
         const crownH = 0.3 + Math.random() * 0.25;
         const crown = new THREE.Mesh(
-          new THREE.SphereGeometry(crownH, 5, 5),
+          new THREE.SphereGeometry(crownH, 6, 6),
           new THREE.MeshStandardMaterial({ color: 0x2d6a2e, roughness: 0.8 })
         );
         crown.position.set(tx, 0.6 + Math.random() * 0.3, tz);
@@ -292,21 +445,79 @@ export class Renderer3D {
       this.scene.add(roof);
       this.buildingMeshes.push(roof);
 
-      // Windows (lit for special buildings and some random)
-      if (b.type === 'police' || b.type === 'hospital' || Math.random() < 0.3) {
-        const winMat = new THREE.MeshStandardMaterial({
-          color: 0xffff88,
-          emissive: 0xffdd44,
-          emissiveIntensity: 0.2 + Math.random() * 0.3,
-          transparent: true,
-          opacity: 0.3 + Math.random() * 0.4,
+      // Hospital red cross on roof
+      if (b.type === 'hospital') {
+        const crossMat = new THREE.MeshStandardMaterial({
+          color: 0xff0000,
+          emissive: 0xff0000,
+          emissiveIntensity: 0.3,
         });
-        for (let wy = 0.6; wy < b.h - 0.3; wy += 0.9) {
-          for (let ww = -b.w / 2 + 0.3; ww < b.w / 2 - 0.2; ww += 0.9) {
-            const win = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.4), winMat);
-            win.position.set(b.x + ww, wy, b.z + b.d / 2 + 0.02);
+        // Horizontal bar
+        const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.05, 0.15), crossMat);
+        hBar.position.set(b.x, b.h + 0.06, b.z);
+        this.scene.add(hBar);
+        this.buildingMeshes.push(hBar);
+        // Vertical bar
+        const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.05, 0.6), crossMat);
+        vBar.position.set(b.x, b.h + 0.06, b.z);
+        this.scene.add(vBar);
+        this.buildingMeshes.push(vBar);
+      }
+
+      // Police station — blue flashing light
+      if (b.type === 'police') {
+        const lightMat = new THREE.MeshStandardMaterial({
+          color: 0x0044ff,
+          emissive: 0x0044ff,
+          emissiveIntensity: 0.5,
+        });
+        const lightBar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.15), lightMat);
+        lightBar.position.set(b.x, b.h + 0.08, b.z);
+        this.scene.add(lightBar);
+        this.specialBuildingLights.push(lightBar);
+
+        const lightMat2 = new THREE.MeshStandardMaterial({
+          color: 0xff0000,
+          emissive: 0xff0000,
+          emissiveIntensity: 0.5,
+        });
+        const lightBar2 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.08, 0.5), lightMat2);
+        lightBar2.position.set(b.x, b.h + 0.08, b.z);
+        this.scene.add(lightBar2);
+        this.specialBuildingLights.push(lightBar2);
+      }
+
+      // Windows with glow at night
+      const hasWindows = b.type !== 'warehouse' || Math.random() < 0.5;
+      if (hasWindows) {
+        const winCountX = Math.max(1, Math.floor(b.w / 0.8));
+        const winCountZ = Math.max(1, Math.floor(b.d / 0.8));
+        for (let wy = 0.5; wy < b.h - 0.2; wy += 0.7) {
+          for (let wi = 0; wi < winCountX + winCountZ; wi++) {
+            let wx, wz;
+            const onXSide = wi < winCountX;
+            const idx = onXSide ? wi : wi - winCountX;
+            if (onXSide) {
+              wx = b.x - b.w / 2 + (idx + 0.5) * (b.w / winCountX);
+              wz = b.z + b.d / 2 + 0.02;
+            } else {
+              wx = b.x + b.w / 2 + 0.02;
+              wz = b.z - b.d / 2 + (idx + 0.5) * (b.d / winCountZ);
+            }
+            const winMat = new THREE.MeshStandardMaterial({
+              color: 0x88aaff,
+              emissive: 0x88ccff,
+              emissiveIntensity: Math.random() * 0.5 + 0.1,
+              transparent: true,
+              opacity: 0.4 + Math.random() * 0.4,
+            });
+            const win = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.3), winMat);
+            win.position.set(wx, wy, wz);
+            if (!onXSide) {
+              win.rotation.y = Math.PI / 2;
+            }
             this.scene.add(win);
-            this.buildingMeshes.push(win);
+            this.windowGlows.push({ mesh: win, baseEmissive: 0.1 + Math.random() * 0.5 });
           }
         }
       }
@@ -330,7 +541,7 @@ export class Renderer3D {
   }
 
   private clearMeshes(): void {
-    const all = [...this.buildingMeshes, ...this.roadMeshes, ...this.parkMeshes, ...this.treeMeshes, ...this.wallMeshes, ...this.bloodDecals];
+    const all = [...this.buildingMeshes, ...this.roadMeshes, ...this.parkMeshes, ...this.treeMeshes, ...this.wallMeshes, ...this.bloodDecals, ...this.specialBuildingLights];
     for (const m of all) {
       this.scene.remove(m);
       if (m.geometry) m.geometry.dispose();
@@ -342,12 +553,36 @@ export class Renderer3D {
     this.treeMeshes = [];
     this.wallMeshes = [];
     this.bloodDecals = [];
+    this.specialBuildingLights = [];
+
+    for (const wg of this.windowGlows) {
+      this.scene.remove(wg.mesh);
+      wg.mesh.geometry.dispose();
+      (wg.mesh.material as THREE.Material).dispose();
+    }
+    this.windowGlows = [];
+
+    for (const m of this.roadMarkings) {
+      this.scene.remove(m);
+      m.geometry.dispose();
+    }
+    this.roadMarkings = [];
 
     for (const t of this.tracers) {
       this.scene.remove(t);
       t.geometry.dispose();
     }
     this.tracers = [];
+  }
+
+  /**
+   * Trigger a screen shake
+   */
+  shake(intensity: number, duration: number): void {
+    this.shakeIntensity = intensity;
+    this.shakeDuration = duration;
+    this.shakeTimer = duration;
+    this.originalCamPos.copy(this.camera.position);
   }
 
   update(state: SimulationState, dt: number): void {
@@ -363,42 +598,82 @@ export class Renderer3D {
     else dayFactor = 0;
     dayFactor = Math.max(0, Math.min(1, dayFactor));
 
-    // Night overlay
+    // ─── Night overlay ───
     (this.nightOverlay.material as THREE.MeshBasicMaterial).opacity = (1 - dayFactor) * 0.7;
 
-    // Stars visibility
+    // ─── Stars visibility ───
     (this.stars.material as THREE.PointsMaterial).opacity = (1 - dayFactor) * 0.8;
 
-    // Sky color
-    const skyTarget = new THREE.Color(
-      dayFactor > 0.5
-        ? (isNight ? 0x0a0a2a : 0x4a6a9a)
-        : (0x1a1a3a + 0x303060 * dayFactor)
-    );
-    (this.sky.material as THREE.MeshBasicMaterial).color.lerp(skyTarget, 0.03);
+    // ─── Moon visibility ───
+    this.moon.visible = isNight && dayFactor < 0.4;
+    if (this.moon.visible) {
+      (this.moon.material as THREE.MeshBasicMaterial).opacity = (1 - dayFactor) * 0.6;
+      const moonChildren = this.moon.children;
+      for (const child of moonChildren) {
+        if (child instanceof THREE.Mesh) {
+          (child.material as THREE.MeshBasicMaterial).opacity = (1 - dayFactor) * 0.15;
+        }
+      }
+    }
 
-    // Ambient
+    // ─── Sky color — more dramatic ───
+    let skyColor: THREE.Color;
+    if (dayFactor > 0.5) {
+      // Day: blue
+      skyColor = new THREE.Color(0x4a6a9a);
+    } else if (time > 0.35 && time < 0.5) {
+      // Sunset: orange
+      const sunsetT = (time - 0.35) / 0.15;
+      skyColor = new THREE.Color(1, 0.5 + 0.3 * (1 - sunsetT), 0.2 + 0.3 * (1 - sunsetT));
+    } else if (time > 0.5 && time < 0.65) {
+      // Sunrise
+      const sunriseT = (time - 0.5) / 0.15;
+      skyColor = new THREE.Color(1, 0.5 + 0.3 * sunriseT, 0.2 + 0.3 * sunriseT);
+    } else {
+      // Night: deep blue
+      skyColor = new THREE.Color(0x05051a);
+    }
+    (this.sky.material as THREE.MeshBasicMaterial).color.lerp(skyColor, 0.05);
+
+    // ─── Ambient ───
     this.ambient.intensity = (0.15 + dayFactor * 0.5) * 0.6;
 
-    // Sun
+    // ─── Sun movement ───
     const sunAngle = time * Math.PI * 2;
     this.directional.position.set(Math.cos(sunAngle) * 50, 20 + Math.sin(sunAngle) * 25, Math.sin(sunAngle) * 40);
     this.directional.intensity = dayFactor * 1.5 + 0.2;
 
-    // Fog
-    const fogDensity = 0.008 + (1 - dayFactor) * 0.02 + (state.stats.zombies > 100 ? 0.005 : 0);
+    // ─── Fog — more dramatic at night ───
+    const fogDensity = 0.008 + (1 - dayFactor) * 0.025 + (state.stats.zombies > 100 ? 0.005 : 0);
     (this.scene.fog as THREE.FogExp2).density = fogDensity;
 
-    // Update entities
+    // ─── Building window glow at night ───
+    for (const wg of this.windowGlows) {
+      const mat = wg.mesh.material as THREE.MeshStandardMaterial;
+      const nightBrightness = (1 - dayFactor);
+      mat.emissiveIntensity = wg.baseEmissive * (0.2 + nightBrightness * 0.8);
+    }
+
+    // ─── Police lights flashing ───
+    for (let i = 0; i < this.specialBuildingLights.length; i++) {
+      const mat = this.specialBuildingLights[i].material as THREE.MeshStandardMaterial;
+      const flash = Math.sin(state.totalTime * 4 + i * 2.5) > 0 ? 1 : 0.1;
+      mat.emissiveIntensity = flash * 0.5 * (0.5 + (1 - dayFactor) * 0.5);
+    }
+
+    // ─── Update entities ───
     this.updateEntityMeshes(state, dayFactor, state.totalTime);
 
-    // Update glow
-    this.updateGlowParticles(state, state.totalTime);
+    // ─── Update glow ───
+    this.updateGlowParticles(state, state.totalTime, dayFactor);
 
-    // Update particles
+    // ─── Update particles ───
     this.updateParticles(dt);
 
-    // Update blood decals lifecycle (fade oldest)
+    // ─── Update ambient dust ───
+    this.updateDustParticles(dt, dayFactor);
+
+    // ─── Blood decal cleanup ───
     if (this.bloodDecals.length > 100) {
       const old = this.bloodDecals.shift();
       if (old) {
@@ -408,7 +683,7 @@ export class Renderer3D {
       }
     }
 
-    // Handle shot events (spawn muzzle flash + tracer)
+    // ─── Handle shot events ───
     for (const ev of state.events) {
       if (ev.text.startsWith('SHOT:')) {
         const parts = ev.text.split(':')[1].split(',').map(Number);
@@ -419,17 +694,28 @@ export class Renderer3D {
       }
     }
 
-    // Clean up old shot events from events array (we copy array so this is fine)
-    // (We don't actually delete them here, main.ts handles that)
-
-    // Update tracers
+    // ─── Update tracers ───
     this.updateTracers(dt);
 
-    // Controls
+    // ─── Screen shake ───
+    if (this.shakeTimer > 0) {
+      this.shakeTimer -= dt;
+      const frac = this.shakeTimer / this.shakeDuration;
+      const intensity = this.shakeIntensity * frac;
+      this.camera.position.x = this.originalCamPos.x + (Math.random() - 0.5) * intensity;
+      this.camera.position.y = this.originalCamPos.y + (Math.random() - 0.5) * intensity * 0.5;
+      this.camera.position.z = this.originalCamPos.z + (Math.random() - 0.5) * intensity;
+      this.controls.target.set(0, 0, 0);
+      if (this.shakeTimer <= 0) {
+        this.camera.position.copy(this.originalCamPos);
+      }
+    }
+
+    // ─── Controls ───
     this.controls.update();
 
-    // Render
-    this.renderer.render(this.scene, this.camera);
+    // ─── Render via composer ───
+    this.composer.render();
   }
 
   private updateEntityMeshes(state: SimulationState, dayFactor: number, time: number): void {
@@ -438,72 +724,191 @@ export class Renderer3D {
 
     for (const e of toRender) {
       currentIds.add(e.id);
-      let mesh = this.entityMeshes.get(e.id);
-      if (!mesh) {
-        const geom = new THREE.SphereGeometry(e.type === 'military' ? 0.4 : 0.35, 12, 12);
-        const col = new THREE.Color(e.color);
-        const mat = new THREE.MeshStandardMaterial({
-          color: col,
-          emissive: col,
-          emissiveIntensity: 0.1,
-          roughness: 0.3,
-          metalness: 0.1,
-        });
-        mesh = new THREE.Mesh(geom, mat);
-        mesh.castShadow = true;
-        this.scene.add(mesh);
-        this.entityMeshes.set(e.id, mesh);
+      let group = this.entityMeshes.get(e.id);
+      if (!group) {
+        group = this.createEntityMesh(e);
+        this.scene.add(group);
+        this.entityMeshes.set(e.id, group);
       }
 
-      mesh.position.set(e.x, 0.45, e.z);
+      group.position.set(e.x, 0, e.z);
       const col = new THREE.Color(e.color);
-      const mat = mesh.material as THREE.MeshStandardMaterial;
-      mat.color.copy(col);
 
-      if (e.type === 'zombie') {
-        // Pulse effect
-        const pulse = 0.3 + Math.sin(time * 2.5 + e.id * 0.7) * 0.4;
-        mat.emissive.copy(col);
-        mat.emissiveIntensity = pulse;
-        mesh.scale.set(
-          1 + Math.sin(time * 1.5 + e.id) * 0.04,
-          1 + Math.sin(time * 1.5 + e.id) * 0.04,
-          1 + Math.sin(time * 1.5 + e.id) * 0.04
-        );
-      } else if (e.infectionTimer > 0) {
-        const pulse = 0.3 + Math.sin(time * 3 + e.id) * 0.3;
-        mat.emissive.setHex(0x88ff44);
-        mat.emissiveIntensity = pulse;
-        mesh.scale.set(
-          1 + Math.sin(time * 2 + e.id) * 0.06,
-          1 + Math.sin(time * 2 + e.id) * 0.06,
-          1 + Math.sin(time * 2 + e.id) * 0.06
-        );
-      } else if (e.type === 'military') {
-        mat.emissiveIntensity = 0.15;
-        mesh.scale.set(1.15, 1.15, 1.15);
-      } else {
-        mat.emissiveIntensity = 0.05;
-        mesh.scale.set(1, 1, 1);
-      }
+      // Update material colors
+      group.children.forEach(child => {
+        if (child instanceof THREE.Mesh) {
+          const mat = child.material as THREE.MeshStandardMaterial;
+          if (child.userData.isBody || child.userData.isHead) {
+            mat.color.copy(col);
+          }
+
+          if (e.type === 'zombie') {
+            // Zombie pulsing glow — high emissive for bloom
+            const pulse = 0.5 + Math.sin(time * 2.5 + e.id * 0.7) * 0.4;
+            const glow = 0.5 + Math.sin(time * 2.5 + e.id * 0.7) * 0.3;
+            if (child.userData.isBody) {
+              mat.emissive.setHex(0x44ff44);
+              mat.emissiveIntensity = glow;
+            }
+            group.scale.set(
+              1 + Math.sin(time * 1.5 + e.id) * 0.04,
+              1 + Math.sin(time * 1.5 + e.id) * 0.04,
+              1 + Math.sin(time * 1.5 + e.id) * 0.04
+            );
+            // Slow rotation for zombie menace
+            group.rotation.y += 0.3 * (1/60);
+          } else if (e.infectionTimer > 0) {
+            // Infected — dramatic yellow-green pulse
+            const pulse = 0.5 + Math.sin(time * 3 + e.id) * 0.4;
+            if (child.userData.isBody) {
+              mat.emissive.setHex(0x88ff44);
+              mat.emissiveIntensity = pulse;
+            }
+            group.scale.set(
+              1 + Math.sin(time * 2 + e.id) * 0.06,
+              1 + Math.sin(time * 2 + e.id) * 0.06,
+              1 + Math.sin(time * 2 + e.id) * 0.06
+            );
+          } else if (e.type === 'military' && child.userData.isBody) {
+            mat.emissiveIntensity = 0.15;
+            mat.emissive.setHex(0xff4444);
+          } else if (child.userData.isBody) {
+            mat.emissiveIntensity = 0.05;
+          }
+        }
+      });
     }
 
     // Remove dead entity meshes
-    for (const [id, mesh] of this.entityMeshes.entries()) {
+    for (const [id, group] of this.entityMeshes.entries()) {
       if (!currentIds.has(id)) {
-        this.scene.remove(mesh);
-        mesh.geometry.dispose();
-        (mesh.material as THREE.MeshStandardMaterial).dispose();
+        this.scene.remove(group);
+        group.traverse(child => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            (child.material as THREE.Material).dispose();
+          }
+        });
         this.entityMeshes.delete(id);
       }
     }
   }
 
-  private updateGlowParticles(state: SimulationState, time: number): void {
+  private createEntityMesh(e: Entity): THREE.Group {
+    const group = new THREE.Group();
+    const col = new THREE.Color(e.color);
+
+    if (e.type === 'civilian') {
+      // Cylinder body with sphere head
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: col,
+        roughness: 0.4,
+        metalness: 0.05,
+        emissive: col,
+        emissiveIntensity: 0.05,
+      });
+      const body = new THREE.Mesh(this.civilianGeom, bodyMat);
+      body.position.y = 0.25;
+      body.castShadow = true;
+      body.userData.isBody = true;
+      group.add(body);
+
+      const headMat = new THREE.MeshStandardMaterial({
+        color: 0xffccaa,
+        roughness: 0.5,
+      });
+      const head = new THREE.Mesh(this.civilianHeadGeom, headMat);
+      head.position.y = 0.6;
+      head.userData.isHead = true;
+      group.add(head);
+
+    } else if (e.type === 'zombie') {
+      // Low-poly cone body with high emissive for bloom
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: col,
+        roughness: 0.6,
+        metalness: 0.0,
+        emissive: new THREE.Color(0x44ff44),
+        emissiveIntensity: 1.0, // High for bloom
+      });
+      const body = new THREE.Mesh(this.zombieGeom, bodyMat);
+      body.position.y = 0.28;
+      body.castShadow = true;
+      body.userData.isBody = true;
+      group.add(body);
+
+      // Small sphere "head"
+      const headMat = new THREE.MeshStandardMaterial({
+        color: 0x88aa44,
+        emissive: 0x44ff44,
+        emissiveIntensity: 0.5,
+        roughness: 0.7,
+      });
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 5, 5), headMat);
+      head.position.y = 0.55;
+      head.userData.isHead = true;
+      group.add(head);
+
+    } else if (e.type === 'military') {
+      // Box body
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: col,
+        roughness: 0.5,
+        metalness: 0.3,
+        emissive: col,
+        emissiveIntensity: 0.15,
+      });
+      const body = new THREE.Mesh(this.militaryGeom, bodyMat);
+      body.position.y = 0.22;
+      body.castShadow = true;
+      body.userData.isBody = true;
+      group.add(body);
+
+      // Head
+      const headMat = new THREE.MeshStandardMaterial({
+        color: 0xccaa88,
+        roughness: 0.5,
+      });
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 5, 5), headMat);
+      head.position.y = 0.5;
+      head.userData.isHead = true;
+      group.add(head);
+
+      // Antenna
+      const antMat = new THREE.MeshStandardMaterial({
+        color: 0xaaaaaa,
+        emissive: 0xff4444,
+        emissiveIntensity: 0.3,
+        metalness: 0.5,
+      });
+      const ant = new THREE.Mesh(this.antennaGeom, antMat);
+      ant.position.y = 0.65;
+      ant.userData.isAntenna = true;
+      group.add(ant);
+
+      // Tiny red dot on antenna tip
+      const dotMat = new THREE.MeshStandardMaterial({
+        color: 0xff0000,
+        emissive: 0xff0000,
+        emissiveIntensity: 0.8,
+      });
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.025, 4, 4), dotMat);
+      dot.position.y = 0.75;
+      dot.userData.isAntenna = true;
+      group.add(dot);
+    }
+
+    return group;
+  }
+
+  private updateGlowParticles(state: SimulationState, time: number, dayFactor: number): void {
     const zombies = state.entities.filter(e => e.type === 'zombie' && e.state !== 'dead');
+    // Reduce glow particles at high zombie counts for performance
+    const glowPerZombie = zombies.length > 100 ? 3 : zombies.length > 50 ? 4 : 6;
     let idx = 0;
+    const maxGlow = Math.min(1800, zombies.length * glowPerZombie + 100);
     for (const z of zombies) {
-      for (let j = 0; j < 6 && idx < 1800; j++) {
+      for (let j = 0; j < glowPerZombie && idx < maxGlow; j++) {
         const angle = Math.random() * Math.PI * 2;
         const rad = 0.4 + Math.random() * 0.7;
         const pulse = Math.sin(time * 2 + z.id * 0.5 + j) * 0.2;
@@ -554,6 +959,28 @@ export class Renderer3D {
     (this.particles.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
   }
 
+  private updateDustParticles(dt: number, dayFactor: number): void {
+    const pos = this.dustPositions;
+    const vel = this.dustVelocities;
+    const dustMat = this.dustParticles.material as THREE.PointsMaterial;
+    dustMat.opacity = 0.08 + (1 - dayFactor) * 0.1;
+
+    for (let i = 0; i < pos.length / 3; i++) {
+      pos[i * 3] += vel[i * 3] * dt;
+      pos[i * 3 + 1] += vel[i * 3 + 1] * dt;
+      pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
+
+      // Wrap around map
+      if (pos[i * 3] > 30) pos[i * 3] = -30;
+      if (pos[i * 3] < -30) pos[i * 3] = 30;
+      if (pos[i * 3 + 2] > 30) pos[i * 3 + 2] = -30;
+      if (pos[i * 3 + 2] < -30) pos[i * 3 + 2] = 30;
+      if (pos[i * 3 + 1] > 12) pos[i * 3 + 1] = 1;
+      if (pos[i * 3 + 1] < 0) pos[i * 3 + 1] = 10;
+    }
+    (this.dustParticles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+  }
+
   private updateTracers(dt: number): void {
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const tracer = this.tracers[i];
@@ -601,7 +1028,6 @@ export class Renderer3D {
     this.scene.add(line);
     this.tracers.push(line);
 
-    // Also add a blood splat at target
     this.addBloodDecal(toX, toZ);
   }
 
@@ -626,10 +1052,14 @@ export class Renderer3D {
   }
 
   reset(): void {
-    for (const mesh of this.entityMeshes.values()) {
-      this.scene.remove(mesh);
-      mesh.geometry.dispose();
-      (mesh.material as THREE.MeshStandardMaterial).dispose();
+    for (const group of this.entityMeshes.values()) {
+      this.scene.remove(group);
+      group.traverse(child => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
     }
     this.entityMeshes.clear();
 
@@ -646,10 +1076,12 @@ export class Renderer3D {
     this.decalCount = 0;
     this.glowPositions.fill(0);
     this.glowColors.fill(0);
+    this.shakeTimer = 0;
   }
 
   dispose(): void {
     this.renderer.dispose();
+    this.composer.dispose();
     window.removeEventListener('resize', () => {});
   }
 }

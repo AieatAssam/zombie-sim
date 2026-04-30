@@ -1,4 +1,4 @@
-// Main Entry — game loop, UI, chart, event system
+// Main Entry — game loop, UI, chart, event system, notifications, milestones
 
 import * as THREE from 'three';
 import { Simulation } from './simulation';
@@ -23,34 +23,76 @@ const btnPause = document.getElementById('btn-pause')!;
 const btnReset = document.getElementById('btn-reset')!;
 const btnCamera = document.getElementById('btn-camera')!;
 const eventList = document.getElementById('event-list')!;
+// These are created dynamically below — will be set after creation
+let notificationContainer: HTMLElement;
+let dangerOverlay: HTMLElement;
+let firstInfectionFlash: HTMLElement;
+let entityPopup: HTMLElement;
+let gameOverDiv: HTMLElement;
 
 let paused = false;
 let speed = 1;
 let cameraMode: 'orbit' | 'top' | 'close' = 'orbit';
 let lastProcessedEvents = new Set<string>();
 
-// ─── Add game over UI ───
-const gameOverDiv = document.createElement('div');
+// ─── Slow-motion tracking ───
+let slowMoActive = false;
+let slowMoTimer = 0;
+const SLOW_MO_DURATION = 3;
+const SLOW_MO_FACTOR = 0.3;
+let firstInfectionShown = false;
+let slowMoRestoreSpeed = 1;
+
+// ─── Milestone tracking ───
+let milestonesShown = new Set<string>();
+let lastZombieCount = 0;
+let lastCivilianCount = 400;
+let lastSurvivalDay = 0;
+
+// ─── Click-to-inspect ───
+let selectedEntityId: number | null = null;
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+// ─── Add game over overlay ───
+gameOverDiv = document.createElement('div');
 gameOverDiv.id = 'gameover';
-gameOverDiv.style.cssText = `
-  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-  display: none; align-items: center; justify-content: center;
-  pointer-events: none; z-index: 100;
-`;
-const gameOverText = document.createElement('div');
-gameOverText.style.cssText = `
-  background: rgba(0,0,0,0.85); padding: 30px 50px;
-  border: 2px solid #ff4444; border-radius: 12px;
-  font-size: 28px; font-weight: 800; color: #ff4444;
-  text-align: center; text-shadow: 0 0 40px rgba(255,0,0,0.5);
-  animation: pulse 1.5s ease-in-out infinite;
-`;
-gameOverDiv.appendChild(gameOverText);
+gameOverDiv.innerHTML = '<div class="gameover-box"></div>';
 document.getElementById('ui-overlay')!.appendChild(gameOverDiv);
 
-// Add keyframe for pulse
+// ─── Add danger overlay ───
+dangerOverlay = document.createElement('div');
+dangerOverlay.id = 'danger-overlay';
+document.getElementById('ui-overlay')!.appendChild(dangerOverlay);
+
+// ─── Add notification container ───
+notificationContainer = document.createElement('div');
+notificationContainer.id = 'notification-container';
+document.getElementById('ui-overlay')!.appendChild(notificationContainer);
+
+// ─── Add first infection flash ───
+firstInfectionFlash = document.createElement('div');
+firstInfectionFlash.id = 'first-infection-flash';
+firstInfectionFlash.innerHTML = '<div class="first-infection-text">⚠ FIRST INFECTION ⚠</div>';
+document.getElementById('ui-overlay')!.appendChild(firstInfectionFlash);
+
+// ─── Add entity info popup ───
+entityPopup = document.createElement('div');
+entityPopup.id = 'entity-popup';
+document.getElementById('ui-overlay')!.appendChild(entityPopup);
+
+// ─── Add keyframe styles ───
 const styleSheet = document.createElement('style');
-styleSheet.textContent = `@keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }`;
+styleSheet.textContent = `
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+  @keyframes flashText { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.3; transform: scale(1.05); } }
+  @keyframes statPulse { 0% { transform: scale(1.2); } 100% { transform: scale(1); } }
+  @keyframes dangerPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+  @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes gameOverAppear { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes eventFadeIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+`;
 document.head.appendChild(styleSheet);
 
 // ─── Chart ───
@@ -152,28 +194,159 @@ function updateEvents(): void {
   eventList.scrollTop = 0;
 }
 
+// ─── Notifications ───
+function showNotification(text: string, type: string): void {
+  const div = document.createElement('div');
+  div.className = `notification ${type}`;
+  div.textContent = text;
+  notificationContainer.appendChild(div);
+  // Remove after animation
+  setTimeout(() => {
+    if (div.parentNode) notificationContainer.removeChild(div);
+  }, 3500);
+}
+
+// ─── Milestone checking ───
+function checkMilestones(stats: { civilians: number; zombies: number; military: number; dead: number }): void {
+  // Zombie milestones
+  if (stats.zombies > 0 && !milestonesShown.has('first-zombie')) {
+    milestonesShown.add('first-zombie');
+    showNotification('🧟 First zombie spotted!', 'zombie');
+  }
+  if (stats.zombies >= 50 && !milestonesShown.has('zombie-50')) {
+    milestonesShown.add('zombie-50');
+    showNotification('🧟 50 zombies! The infection spreads!', 'zombie');
+    renderer.shake(0.3, 0.5);
+  }
+  if (stats.zombies >= 100 && !milestonesShown.has('zombie-100')) {
+    milestonesShown.add('zombie-100');
+    showNotification('🧟⚠️ 100+ ZOMBIES! City in chaos!', 'death');
+    renderer.shake(0.5, 0.8);
+  }
+  if (stats.zombies >= 200 && !milestonesShown.has('zombie-200')) {
+    milestonesShown.add('zombie-200');
+    showNotification('☠️ 200+ zombies! Extinction imminent!', 'death');
+    renderer.shake(0.8, 1.0);
+  }
+
+  // Civilian milestones
+  if (stats.civilians <= 50 && stats.civilians > 0 && !milestonesShown.has('civ-50')) {
+    milestonesShown.add('civ-50');
+    showNotification('⚠️ Only 50 civilians remain!', 'death');
+  }
+  if (stats.civilians <= 10 && stats.civilians > 0 && !milestonesShown.has('civ-10')) {
+    milestonesShown.add('civ-10');
+    showNotification('🆘 Only 10 civilians left!', 'death');
+    renderer.shake(0.4, 0.6);
+  }
+
+  // Survival milestones
+  const day = sim.state.day;
+  if (day >= 5 && !milestonesShown.has('day-5')) {
+    milestonesShown.add('day-5');
+    showNotification('🎯 Day 5! Survivors holding on!', 'info');
+  }
+  if (day >= 10 && !milestonesShown.has('day-10')) {
+    milestonesShown.add('day-10');
+    showNotification('🏆 Day 10! Incredible survival!', 'info');
+  }
+}
+
 // ─── Game Loop ───
 let lastTime = 0;
+let prevZombieCount = 0;
+let prevCivilianCount = 400;
+let deathShakeCooldown = 0;
 
 function gameLoop(time: number): void {
   const rawDt = Math.min((time - lastTime) / 1000, 0.05);
   lastTime = time;
 
+  // Handle slow-motion
+  let effectiveSpeed = speed;
+  if (slowMoActive) {
+    slowMoTimer -= rawDt;
+    effectiveSpeed = speed * SLOW_MO_FACTOR;
+    if (slowMoTimer <= 0) {
+      slowMoActive = false;
+      // Ramp up speed back to normal
+      effectiveSpeed = speed;
+      firstInfectionFlash.classList.remove('active');
+    }
+  }
+
   if (!paused) {
-    const simDt = rawDt * speed;
+    const simDt = rawDt * effectiveSpeed;
     sim.tick(simDt);
   }
 
-  // Game over screen
+  // ─── First infection detection & slow-mo ───
+  const currentInfected = sim.state.stats.totalInfected;
+  if (currentInfected > 0 && !firstInfectionShown) {
+    firstInfectionShown = true;
+    // Trigger slow-motion
+    if (!slowMoActive && !paused) {
+      slowMoActive = true;
+      slowMoTimer = SLOW_MO_DURATION;
+      firstInfectionFlash.classList.add('active');
+      showNotification('⚠ FIRST INFECTION! Zombie outbreak!', 'death');
+      renderer.shake(0.6, 1.0);
+    }
+  }
+
+  // ─── Check for spikes and outbreaks ───
+  const stats = sim.state.stats;
+
+  // Detect large zombie spike for camera auto-focus
+  const zombieDelta = stats.zombies - prevZombieCount;
+  if (zombieDelta > 3 && !slowMoActive) {
+    // Find a zombie to focus on (if in orbit mode)
+    const zombies = sim.state.entities.filter(e => e.type === 'zombie' && e.state !== 'dead');
+    if (zombies.length > 0 && cameraMode === 'orbit') {
+      // Just shake, don't disrupt camera too much
+      renderer.shake(Math.min(0.2, zombieDelta * 0.02), 0.3);
+    }
+  }
+
+  // Detect civilian deaths for shake
+  const civDelta = prevCivilianCount - stats.civilians;
+  if (civDelta > 5) {
+    renderer.shake(Math.min(0.5, civDelta * 0.05), 0.5);
+  }
+  deathShakeCooldown -= rawDt;
+
+  prevZombieCount = stats.zombies;
+  prevCivilianCount = stats.civilians;
+
+  // ─── Check milestones ───
+  checkMilestones(stats);
+
+  // ─── Danger overlay ───
+  if (stats.zombies > stats.civilians + stats.military && stats.zombies > 5) {
+    dangerOverlay.classList.add('active');
+  } else {
+    dangerOverlay.classList.remove('active');
+  }
+
+  // ─── Game over screen ───
+  const gameOverDiv = document.getElementById('gameover')!;
   if (sim.state.gameOver) {
     gameOverDiv.style.display = 'flex';
-    gameOverText.textContent = sim.state.gameOverReason;
+    const box = gameOverDiv.querySelector('.gameover-box') as HTMLElement;
+    if (box) {
+      box.textContent = sim.state.gameOverReason;
+      box.className = 'gameover-box';
+      if (sim.state.gameOverReason.includes('SAVED') || sim.state.gameOverReason.includes('eliminated')) {
+        box.classList.add('win');
+        // Show victory notification
+        showNotification('🎉 CITY SAVED! Zombies eliminated!', 'info');
+      }
+    }
   } else {
     gameOverDiv.style.display = 'none';
   }
 
-  // Update HUD
-  const stats = sim.state.stats;
+  // ─── Update HUD ───
   statDay.textContent = String(sim.state.day);
   const hour = Math.floor(sim.state.timeOfDay * 24);
   const min = Math.floor((sim.state.timeOfDay * 24 - hour) * 60);
@@ -181,13 +354,24 @@ function gameLoop(time: number): void {
   statCiv.textContent = String(stats.civilians);
   statZom.textContent = String(stats.zombies);
   statMil.textContent = String(stats.military);
-  statDead.textContent = String(sim.state.stats.dead + Math.floor(sim.state.stats.totalInfected * 0.5));
+  // FIX: Use stats.dead directly
+  statDead.textContent = String(stats.dead);
   statFood.textContent = `${stats.foodSupply}%`;
+
+  // ─── Stat box alerts ───
+  const zombieBox = document.querySelector('.zombie-stat') as HTMLElement;
+  if (zombieBox) {
+    if (stats.zombies > stats.civilians && stats.zombies > 5) {
+      zombieBox.classList.add('zombie-alert');
+    } else {
+      zombieBox.classList.remove('zombie-alert');
+    }
+  }
 
   updateEvents();
   drawChart();
 
-  // Render 3D
+  // ─── Render 3D ───
   renderer.update(sim.state, rawDt);
 
   requestAnimationFrame(gameLoop);
@@ -210,6 +394,7 @@ btnReset.addEventListener('click', () => {
   sim.reset();
   renderer.reset();
   renderer.buildCity(sim.state);
+  const gameOverDiv = document.getElementById('gameover')!;
   gameOverDiv.style.display = 'none';
   paused = false;
   btnPause.textContent = '⏸ Pause';
@@ -217,6 +402,12 @@ btnReset.addEventListener('click', () => {
   speed = 1;
   speedSlider.value = '1';
   speedDisplay.textContent = '1x';
+  slowMoActive = false;
+  slowMoTimer = 0;
+  firstInfectionShown = false;
+  milestonesShown.clear();
+  prevZombieCount = 0;
+  prevCivilianCount = 400;
 });
 
 btnCamera.addEventListener('click', () => {
@@ -233,6 +424,7 @@ btnCamera.addEventListener('click', () => {
     renderer.camera.position.set(40, 35, 40);
   }
   renderer.controls.target.copy(target);
+  // Clear shake original position
 });
 
 // Keyboard
@@ -250,6 +442,73 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '0') { speed = 10; speedSlider.value = '10'; speedDisplay.textContent = '10x'; }
 });
 
+// ─── Click-to-inspect ───
+const raycasterLocal = new THREE.Raycaster();
+const mouseLocal = new THREE.Vector2();
+
+renderer.renderer.domElement.addEventListener('click', (event: MouseEvent) => {
+  const rect = renderer.renderer.domElement.getBoundingClientRect();
+  mouseLocal.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseLocal.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+  raycasterLocal.setFromCamera(mouseLocal, renderer.camera);
+
+  // Get all entity groups
+  const objects: THREE.Object3D[] = [];
+  for (const group of renderer['entityMeshes'].values()) {
+    objects.push(group);
+  }
+
+  const intersects = raycasterLocal.intersectObjects(objects, true);
+
+  if (intersects.length > 0) {
+    const hitObject = intersects[0].object;
+    // Walk up to find the group
+    let group: THREE.Object3D = hitObject;
+    while (group.parent && group.parent.type !== 'Scene') {
+      group = group.parent;
+    }
+
+    // Find entity by mesh
+    let foundId: number | null = null;
+    for (const [id, g] of renderer['entityMeshes'].entries()) {
+      if (g === group || g === group.parent) {
+        foundId = id;
+        break;
+      }
+    }
+
+    if (foundId !== null) {
+      const entity = sim.state.entities.find(e => e.id === foundId);
+      if (entity) {
+        showEntityPopup(entity, event.clientX, event.clientY);
+        return;
+      }
+    }
+  }
+
+  // Click anywhere else hides popup
+  entityPopup.classList.remove('active');
+});
+
+function showEntityPopup(entity: { id: number; type: string; hp: number; maxHp: number; state: string; kills?: number; ammo?: number }, x: number, y: number): void {
+  const typeLabel = entity.type.charAt(0).toUpperCase() + entity.type.slice(1);
+  let html = `<div class="popup-title" style="color: ${entity.type === 'zombie' ? '#44ff44' : entity.type === 'military' ? '#ff4444' : '#4da6ff'}">${typeLabel} #${entity.id}</div>`;
+  html += `<div class="popup-row"><span class="label">HP</span><span class="value">${Math.round(entity.hp)}/${entity.maxHp}</span></div>`;
+  html += `<div class="popup-row"><span class="label">State</span><span class="value">${entity.state}</span></div>`;
+  if (entity.type === 'military' && entity.kills !== undefined) {
+    html += `<div class="popup-row"><span class="label">Kills</span><span class="value">${entity.kills}</span></div>`;
+  }
+  if (entity.type === 'military' && entity.ammo !== undefined) {
+    html += `<div class="popup-row"><span class="label">Ammo</span><span class="value">${entity.ammo}</span></div>`;
+  }
+
+  entityPopup.innerHTML = html;
+  entityPopup.style.left = `${Math.min(x + 10, window.innerWidth - 140)}px`;
+  entityPopup.style.top = `${Math.min(y + 10, window.innerHeight - 100)}px`;
+  entityPopup.classList.add('active');
+}
+
 // Hover hint
 const hintDiv = document.createElement('div');
 hintDiv.style.cssText = `
@@ -257,10 +516,10 @@ hintDiv.style.cssText = `
   color: rgba(255,255,255,0.3); font-size: 11px; pointer-events: none;
   text-align: center; font-family: monospace;
 `;
-hintDiv.textContent = '🖱 Drag to orbit · Scroll to zoom · Space=pause · R=reset · 1-9=speed · C=camera';
+hintDiv.textContent = '🖱 Drag to orbit · Scroll to zoom · Click entity=inspect · Space=pause · R=reset · 1-9=speed · C=camera';
 document.getElementById('ui-overlay')!.appendChild(hintDiv);
 
 // ─── Start ───
 requestAnimationFrame(gameLoop);
-console.log('🧟 Zombie Outbreak Simulator v2 started!');
-console.log('  Space=Pause  R=Reset  C=Camera  1-9=Speed');
+console.log('🧟 Zombie Outbreak Simulator v3 started!');
+console.log('  Space=Pause  R=Reset  C=Camera  1-9=Speed  Click entity=Inspect');

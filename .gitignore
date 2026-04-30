@@ -1,5 +1,3 @@
-node_modules/
-dist/
-screenshot*.png
-*.log
-.DS_Store
+node_modules
+dist
+screenshot*

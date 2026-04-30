@@ -259,10 +259,17 @@ export class Simulation {
     s.stats.zombies = zomb;
     s.stats.military = mil;
 
+    // Food supply: more reasonable formula based on food sources vs population
     let totalFood = 0;
     for (const b of s.buildings) totalFood += b.food;
     const humanPop = civ + mil;
-    s.stats.foodSupply = humanPop > 0 ? Math.min(100, Math.round((totalFood / humanPop) * 5)) : 0;
+    if (humanPop > 0) {
+      // Base: each person needs ~2 food per day, buildings regenerate food naturally
+      const foodPerCapita = totalFood / Math.max(1, humanPop);
+      s.stats.foodSupply = Math.min(100, Math.max(0, Math.round(foodPerCapita * 8)));
+    } else {
+      s.stats.foodSupply = 0;
+    }
 
     // History
     this.historyTimer += dt;
@@ -575,22 +582,25 @@ export class Simulation {
     }
   }
 
-  private updateZombie(e: Entity, dt: number, _isNight: boolean): void {
+  private updateZombie(e: Entity, dt: number, isNight: boolean): void {
     e.attackCooldown -= dt;
 
+    // Night speed boost (horde mode)
+    const nightSpeedMul = isNight ? 1.35 : 1.0;
+
     const targetCiv = this.findNearest(e, 18, 'civilian');
-    const targetMil = this.findNearest(e, 14, 'military');
+    const targetMil = this.findNearest(e, 16, 'military'); // increased range at night
     const target = targetCiv || targetMil;
 
+    // Better wander at night — zombies spread more
     if (!target) {
-      // Wander
       e.wanderTimer -= dt;
       if (e.wanderTimer <= 0) {
         e.wanderAngle = Math.random() * Math.PI * 2;
         e.wanderTimer = 2 + Math.random() * 4;
       }
-      e.vx += Math.cos(e.wanderAngle) * e.speed * 0.3 * dt;
-      e.vz += Math.sin(e.wanderAngle) * e.speed * 0.3 * dt;
+      e.vx += Math.cos(e.wanderAngle) * e.speed * nightSpeedMul * 0.3 * dt;
+      e.vz += Math.sin(e.wanderAngle) * e.speed * nightSpeedMul * 0.3 * dt;
       e.state = 'hunting';
       return;
     }
@@ -619,11 +629,11 @@ export class Simulation {
         }
       }
     } else {
-      // Chase
+      // Chase — faster at night
       const dx = target.x - e.x;
       const dz = target.z - e.z;
       const len = Math.sqrt(dx * dx + dz * dz) || 1;
-      const chaseSpd = e.speed * 1.15;
+      const chaseSpd = e.speed * 1.15 * nightSpeedMul;
       e.vx += (dx / len) * chaseSpd * dt * 0.35;
       e.vz += (dz / len) * chaseSpd * dt * 0.35;
       e.state = 'hunting';
@@ -633,6 +643,7 @@ export class Simulation {
   private updateMilitary(e: Entity, dt: number, isNight: boolean): void {
     e.hunger -= 0.2 * dt;
     e.fatigue += 0.08 * dt;
+    const s = this.state;
 
     if (e.hunger <= -30) {
       e.hp -= 2 * dt;
@@ -689,8 +700,21 @@ export class Simulation {
       }
     }
 
-    // Engage zombies
+    // Check for nearby civilians in danger — prioritize protecting them
+    const nearCivInDanger = this.findNearest(e, 10, 'civilian');
     const nearZombie = this.findNearest(e, 16, 'zombie');
+
+    // If a civilian is very close and a zombie is nearby, protect them
+    if (nearCivInDanger && nearZombie && dist(nearCivInDanger, nearZombie) < 4) {
+      // Intercept zombie threatening civilian
+      const dx = nearZombie.x - e.x;
+      const dz = nearZombie.z - e.z;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      e.vx += (dx / len) * e.speed * 0.5 * dt;
+      e.vz += (dz / len) * e.speed * 0.5 * dt;
+      e.state = 'engaging';
+      return;
+    }
 
     if (nearZombie && dist(e, nearZombie) < 12) {
       e.state = 'engaging';

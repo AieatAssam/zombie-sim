@@ -28,6 +28,109 @@ html, body {
   height: 100%;
   pointer-events: none;
 }
+
+/* ─── Danger overlay (pulsing when zombies > civilians) ─── */
+#danger-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  display: none;
+  background: radial-gradient(ellipse at center, transparent 60%, rgba(255,0,0,0.12) 100%);
+  animation: dangerPulse 1.5s ease-in-out infinite;
+  z-index: 5;
+}
+#danger-overlay.active {
+  display: block;
+}
+@keyframes dangerPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* ─── Notification popups ─── */
+#notification-container {
+  position: absolute;
+  top: 80px;
+  right: 20px;
+  pointer-events: none;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+.notification {
+  background: rgba(0,0,0,0.85);
+  border: 1px solid rgba(255,200,0,0.4);
+  border-radius: 8px;
+  padding: 10px 18px;
+  color: #ffdd44;
+  font-size: 14px;
+  font-weight: 700;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 20px rgba(255,200,0,0.2);
+  transform: translateX(120%);
+  animation: slideIn 0.4s ease-out forwards, fadeOut 0.5s ease-in 2.5s forwards;
+  max-width: 320px;
+  text-shadow: 0 0 10px rgba(255,200,0,0.3);
+}
+.notification.zombie {
+  border-color: rgba(68,255,68,0.4);
+  color: #44ff44;
+  box-shadow: 0 0 20px rgba(68,255,68,0.2);
+}
+.notification.death {
+  border-color: rgba(255,68,68,0.4);
+  color: #ff4444;
+  box-shadow: 0 0 20px rgba(255,68,68,0.2);
+}
+.notification.military {
+  border-color: rgba(255,100,68,0.4);
+  color: #ff6644;
+  box-shadow: 0 0 20px rgba(255,100,68,0.2);
+}
+.notification.info {
+  border-color: rgba(77,166,255,0.4);
+  color: #4da6ff;
+  box-shadow: 0 0 20px rgba(77,166,255,0.2);
+}
+@keyframes slideIn {
+  from { transform: translateX(120%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* ─── First Infection Slow-Mo flash ─── */
+#first-infection-flash {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  display: none;
+  z-index: 30;
+  justify-content: center;
+  align-items: center;
+}
+#first-infection-flash.active {
+  display: flex;
+}
+.first-infection-text {
+  font-size: 52px;
+  font-weight: 900;
+  color: #ff4444;
+  text-shadow: 0 0 40px rgba(255,0,0,0.6), 0 0 80px rgba(255,0,0,0.3);
+  animation: flashText 0.15s ease-in-out 3;
+  letter-spacing: 4px;
+}
+@keyframes flashText {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(1.05); }
+}
+
+/* ─── HUD ─── */
 #hud {
   position: absolute;
   top: 12px;
@@ -59,6 +162,16 @@ html, body {
   align-items: center;
   min-width: 60px;
   backdrop-filter: blur(8px);
+  transition: all 0.3s ease;
+}
+/* Glowing border when zombie count spikes */
+.stat-box.zombie-alert {
+  border-color: #44ff44;
+  box-shadow: 0 0 12px rgba(68,255,68,0.3);
+}
+.stat-box.danger-alert {
+  border-color: #ff4444;
+  box-shadow: 0 0 12px rgba(255,68,68,0.3);
 }
 .stat-label {
   font-size: 9px;
@@ -71,6 +184,14 @@ html, body {
   font-weight: 700;
   color: #fff;
   text-shadow: 0 0 8px rgba(255,255,255,0.3);
+  transition: all 0.2s ease;
+}
+.stat-value.pulse {
+  animation: statPulse 0.4s ease-out;
+}
+@keyframes statPulse {
+  0% { transform: scale(1.2); }
+  100% { transform: scale(1); }
 }
 .civilian-stat .stat-value { color: #4da6ff; }
 .zombie-stat .stat-value { color: #44ff44; }
@@ -190,6 +311,11 @@ html, body {
 .event-entry {
   padding: 0 2px;
   border-bottom: 1px solid rgba(255,255,255,0.05);
+  animation: eventFadeIn 0.3s ease-out;
+}
+@keyframes eventFadeIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 .event-entry.zombie { color: #44ff44; }
 .event-entry.death { color: #ff4444; }
@@ -214,6 +340,77 @@ html, body {
   height: 140px;
 }
 
+/* ─── Game Over ─── */
+#gameover {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  display: none; align-items: center; justify-content: center;
+  pointer-events: none; z-index: 100;
+}
+#gameover.active {
+  display: flex;
+}
+.gameover-box {
+  background: rgba(0,0,0,0.9);
+  padding: 30px 60px;
+  border: 2px solid #ff4444;
+  border-radius: 16px;
+  font-size: 28px;
+  font-weight: 800;
+  color: #ff4444;
+  text-align: center;
+  text-shadow: 0 0 40px rgba(255,0,0,0.5);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 0 60px rgba(255,0,0,0.3);
+  animation: gameOverAppear 0.6s ease-out;
+}
+.gameover-box.win {
+  border-color: #ffdd44;
+  color: #ffdd44;
+  text-shadow: 0 0 40px rgba(255,200,0,0.5);
+  box-shadow: 0 0 60px rgba(255,200,0,0.3);
+}
+@keyframes gameOverAppear {
+  from { transform: scale(0.5); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* ─── Entity Info Popup ─── */
+#entity-popup {
+  position: absolute;
+  display: none;
+  pointer-events: none;
+  z-index: 50;
+  background: rgba(0,0,0,0.85);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  padding: 8px 14px;
+  backdrop-filter: blur(10px);
+  font-size: 11px;
+  color: #ccc;
+  min-width: 120px;
+}
+#entity-popup.active {
+  display: block;
+}
+#entity-popup .popup-title {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+#entity-popup .popup-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  line-height: 1.6;
+}
+#entity-popup .popup-row .label {
+  color: #888;
+}
+#entity-popup .popup-row .value {
+  color: #fff;
+  font-weight: 600;
+}
+
 /* Responsive */
 @media (max-width: 700px) {
   .hud-stats { gap: 2px; }
@@ -222,4 +419,5 @@ html, body {
   .event-feed { width: 200px; height: 120px; }
   #chart-container { bottom: 10px; right: 10px; }
   #pop-chart { width: 240px; height: 90px; }
+  .gameover-box { font-size: 20px; padding: 20px 30px; }
 }
