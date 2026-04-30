@@ -181,7 +181,7 @@ export class Simulation {
     }
 
     // Patient zero — start with 2 zombies
-    const initialZombies = 1;
+    const initialZombies = 4;
     for (let zi = 0; zi < initialZombies; zi++) {
       let zx = (Math.random() - 0.5) * 20;
       let zz = (Math.random() - 0.5) * 20;
@@ -254,7 +254,7 @@ export class Simulation {
       type: 'military', x, z, vx: 0, vz: 0,
       state: 'patrolling', hp: 100, maxHp: 100,
       hunger: 70 + Math.random() * 30, fatigue: 10,
-      ammo: 200, maxAmmo: 200, magazineSize: 8, ammoInMag: 8, isReloading: false, reloadTimer: 0,
+      ammo: 100, maxAmmo: 100, magazineSize: 5, ammoInMag: 5, isReloading: false, reloadTimer: 0,
       attackCooldown: 0,
       targetId: null, wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: 1, sleepTimer: 0, forageTimer: 0,
@@ -396,7 +396,7 @@ export class Simulation {
 
     // ─── Game over checks ───
     // Loss: all civilians dead or turned. Military surviving doesn't count.
-    // Win: zombies eliminated with civilians alive, OR civilians survive to Day 7.
+    // Win: all zombies eliminated with at least one civilian alive.
     if (civ <= 0 && zomb > 0) {
       s.gameOver = true;
       s.gameOverReason = '💀 ALL CIVILIANS LOST. ZOMBIES WIN.';
@@ -409,14 +409,6 @@ export class Simulation {
       s.gameOver = true;
       s.gameOverReason = '🎉 CITY SAVED! ZOMBIES ELIMINATED.';
       this.logEvent('✅ GAME OVER — Zombies eliminated! Civilians survive.', 'info');
-    } else if (civ <= 3 && zomb > 0) {
-      s.gameOver = true;
-      s.gameOverReason = '💀 LAST CIVILIANS HUNTED DOWN.';
-      this.logEvent('☠️ GAME OVER — The last civilians were found.', 'death');
-    } else if (s.day >= 7 && civ >= 100) {
-      s.gameOver = true;
-      s.gameOverReason = '🎉 SOCIETY SURVIVES! ' + civ + ' civilians endure.';
-      this.logEvent('✅ GAME OVER — Society endures! ' + civ + ' civilians survive to Day 7.', 'info');
     }
   }
 
@@ -561,7 +553,7 @@ export class Simulation {
     // Small initial force arrives early, then scales with threat
     let targetSoldiers = 0;
 
-    if (totalThreat >= 1) targetSoldiers = 2;
+    if (totalThreat >= 8) targetSoldiers = 2;
     if (totalThreat >= 15) targetSoldiers = 2;
     if (totalThreat >= 35) targetSoldiers = 3;
     if (totalThreat >= 60) targetSoldiers = 4;
@@ -569,10 +561,10 @@ export class Simulation {
     if (totalThreat >= 150) targetSoldiers = 8;
     if (totalThreat >= 210) targetSoldiers = 11;
     if (totalThreat >= 280) targetSoldiers = 14;
-    if (totalThreat >= 360) targetSoldiers = 18;
+    if (totalThreat >= 360) targetSoldiers = 10;
 
     // Cap soldiers so zombies always have numerical advantage
-    targetSoldiers = Math.min(targetSoldiers, Math.floor(zombieThreat * 0.4 + 1));
+    targetSoldiers = Math.min(targetSoldiers, Math.floor(zombieThreat * 0.3 + 1));
 
     // Deploy in waves - don't spawn all at once
     const currentMil = s.stats.military;
@@ -635,7 +627,7 @@ export class Simulation {
 
   // ─── CIVILIAN AI ───
   private updateCivilian(e: Entity, dt: number, isNight: boolean): void {
-    e.hunger -= 0.7 * dt;
+    e.hunger -= 0.5 * dt;
     e.fatigue += 0.15 * dt;
 
     // Check if starving
@@ -1482,7 +1474,7 @@ export class Simulation {
       return;
     }
 
-    if (nearZombie && dist(e, nearZombie) < 28) {
+    if (nearZombie && dist(e, nearZombie) < 24) {
       e.state = 'engaging';
       const d = dist(e, nearZombie);
 
@@ -1499,7 +1491,7 @@ export class Simulation {
       }
 
       // ─── AIM TIMER + ACCURACY SYSTEM ───
-      if (d < 28 && e.attackCooldown <= 0) {
+      if (d < 24 && e.attackCooldown <= 0) {
         if (e.aimTimer <= 0 && e.ammoInMag > 0) {
           // Start aiming: 0.3-0.8 seconds
           e.isAiming = true;
@@ -1517,7 +1509,7 @@ export class Simulation {
           if (e.aimTimer <= 0 && e.ammoInMag > 0) {
             // Fire!
             e.ammoInMag -= 1;
-            e.attackCooldown = 0.4;
+            e.attackCooldown = 0.5;
             e.aimTimer = 0;
             e.isAiming = false;
 
