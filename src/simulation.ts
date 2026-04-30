@@ -494,18 +494,18 @@ export class Simulation {
     // Small initial force arrives early, then scales with threat
     let targetSoldiers = 0;
 
-    if (totalThreat >= 2) targetSoldiers = 2;
-    if (totalThreat >= 10) targetSoldiers = 3;
-    if (totalThreat >= 20) targetSoldiers = 5;
-    if (totalThreat >= 40) targetSoldiers = 8;
-    if (totalThreat >= 70) targetSoldiers = 11;
-    if (totalThreat >= 110) targetSoldiers = 15;
-    if (totalThreat >= 160) targetSoldiers = 19;
-    if (totalThreat >= 230) targetSoldiers = 24;
-    if (totalThreat >= 300) targetSoldiers = 28;
+    if (totalThreat >= 2) targetSoldiers = 1;
+    if (totalThreat >= 10) targetSoldiers = 2;
+    if (totalThreat >= 20) targetSoldiers = 3;
+    if (totalThreat >= 40) targetSoldiers = 5;
+    if (totalThreat >= 70) targetSoldiers = 7;
+    if (totalThreat >= 110) targetSoldiers = 10;
+    if (totalThreat >= 160) targetSoldiers = 13;
+    if (totalThreat >= 230) targetSoldiers = 16;
+    if (totalThreat >= 300) targetSoldiers = 20;
 
     // Cap soldiers so zombies still have a chance
-    targetSoldiers = Math.min(targetSoldiers, Math.floor(zombieThreat * 0.7 + 3));
+    targetSoldiers = Math.min(targetSoldiers, Math.floor(zombieThreat * 0.5 + 2));
 
     // Deploy in waves - don't spawn all at once
     const currentMil = s.stats.military;
@@ -1365,7 +1365,7 @@ export class Simulation {
       return;
     }
 
-    if (nearZombie && dist(e, nearZombie) < 15) {
+    if (nearZombie && dist(e, nearZombie) < 20) {
       e.state = 'engaging';
       const d = dist(e, nearZombie);
 
@@ -1382,11 +1382,11 @@ export class Simulation {
       }
 
       // ─── AIM TIMER + ACCURACY SYSTEM ───
-      if (d < 15 && e.attackCooldown <= 0) {
+      if (d < 20 && e.attackCooldown <= 0) {
         if (e.aimTimer <= 0 && e.ammoInMag > 0) {
           // Start aiming: 0.3-0.8 seconds
           e.isAiming = true;
-          e.aimTimer = 0.3 + Math.random() * 0.5;
+          e.aimTimer = 0.2 + Math.random() * 0.3;
           e.vx *= 0.9;
           e.vz *= 0.9;
         }
@@ -1400,7 +1400,7 @@ export class Simulation {
           if (e.aimTimer <= 0 && e.ammoInMag > 0) {
             // Fire!
             e.ammoInMag -= 1;
-            e.attackCooldown = 0.8;
+            e.attackCooldown = 0.6;
             e.aimTimer = 0;
             e.isAiming = false;
 
@@ -1442,20 +1442,30 @@ export class Simulation {
         }
       }
 
-      // Maintain distance
-      if (d < 3) {
+      // Maintain preferred engagement distance (~8-14 units)
+      // Back up when zombie gets close, hold position at ideal range
+      if (d < 6) {
+        // Emergency: zombie right on top — full retreat
         const dx = e.x - nearZombie.x;
         const dz = e.z - nearZombie.z;
         const len = Math.sqrt(dx * dx + dz * dz) || 1;
-        e.vx += (dx / len) * e.speed * dt * 0.5;
-        e.vz += (dz / len) * e.speed * dt * 0.5;
-      } else if (d > 10) {
-        // Close in
+        e.vx += (dx / len) * e.speed * 0.8 * dt;
+        e.vz += (dz / len) * e.speed * 0.8 * dt;
+      } else if (d < 10) {
+        // Backpedal: maintain distance, proportional to closeness
+        const dx = e.x - nearZombie.x;
+        const dz = e.z - nearZombie.z;
+        const len = Math.sqrt(dx * dx + dz * dz) || 1;
+        const urgency = (10 - d) / 10; // 0 at 10u, 0.4 at 6u
+        e.vx += (dx / len) * e.speed * urgency * 0.6 * dt;
+        e.vz += (dz / len) * e.speed * urgency * 0.6 * dt;
+      } else if (d > 15) {
+        // Close in to fighting range
         const dx = nearZombie.x - e.x;
         const dz = nearZombie.z - e.z;
         const len = Math.sqrt(dx * dx + dz * dz) || 1;
-        e.vx += (dx / len) * e.speed * dt * 0.35;
-        e.vz += (dz / len) * e.speed * dt * 0.35;
+        e.vx += (dx / len) * e.speed * 0.3 * dt;
+        e.vz += (dz / len) * e.speed * 0.3 * dt;
       }
 
       // Squad engagement: if one squad member is engaging, others join
