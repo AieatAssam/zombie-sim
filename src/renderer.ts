@@ -66,7 +66,8 @@ export class Renderer3D {
   private decalCount = 0;
 
   // Corpse/skeleton system
-  private corpseGroups: THREE.Group[] = [];
+  // Corpses: blood pool meshes on ground with fade timers
+  private corpseGroups: THREE.Mesh[] = [];
   private corpseTimers: number[] = [];
   private previousAliveZombieIds: Set<number> = new Set();
 
@@ -797,21 +798,15 @@ export class Renderer3D {
         this.corpseGroups.splice(i, 1);
         this.corpseTimers.splice(i, 1);
       } else {
-        // Fade opacity based on remaining life: stay visible for first half, then fade
-        const group = this.corpseGroups[i];
-        const fadeStart = 0.3; // start fading when 30% life remaining
+        // Fade opacity — stay opaque for first 70%, then fade
+        const mesh = this.corpseGroups[i];
+        const fadeStart = 0.3;
         const opacity = lifeFrac > fadeStart ? 1 : lifeFrac / fadeStart;
-        group.traverse(child => {
-          if (child instanceof THREE.Mesh) {
-            const mat = child.material as THREE.MeshBasicMaterial;
-            if (mat) {
-              mat.opacity = Math.max(0, opacity * ((child.userData.baseOpacity as number) || 1));
-            }
-          }
-        });
-        // Scale down slightly as corpse decays
+        const baseOp = (mesh.userData.baseOpacity as number) || 1;
+        (mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, opacity * baseOp);
+        // Scale down as it decays
         const decayScale = 0.7 + lifeFrac * 0.3;
-        group.scale.set(decayScale, decayScale, decayScale);
+        mesh.scale.set(decayScale, decayScale, decayScale);
       }
     }
 
@@ -1414,71 +1409,30 @@ export class Renderer3D {
   }
 
   /**
-   * Create a corpse/skeleton at the position where a zombie died.
-   * Includes body box, bone cross, and blood splat. Fades over time.
+   * Create a corpse blood pool at the position where a zombie died.
+   * Clean dark red circle on ground that fades over time.
    */
   private createCorpse(x: number, z: number): void {
-    const group = new THREE.Group();
-
-    // Blood splat on ground
-    const splatOpacity = 0.5 + Math.random() * 0.2;
-    const splatGeom = new THREE.CircleGeometry(0.25 + Math.random() * 0.15, 8);
-    const splatMat = new THREE.MeshBasicMaterial({
-      color: 0x330000,
+    const size = 0.2 + Math.random() * 0.15;
+    const opacity = 0.5 + Math.random() * 0.3;
+    const geom = new THREE.CircleGeometry(size, 8);
+    const mat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0.15 + Math.random() * 0.1, 0.0, 0.0),
       transparent: true,
-      opacity: splatOpacity,
+      opacity: opacity,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
-    const splat = new THREE.Mesh(splatGeom, splatMat);
-    splat.userData.baseOpacity = splatOpacity;
-    splat.rotation.x = -Math.PI / 2;
-    splat.position.set(0, 0.02, 0);
-    group.add(splat);
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.userData.baseOpacity = opacity;
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.03, z);
 
-    // Body box (torso)
-    const bodyMat = new THREE.MeshBasicMaterial({
-      color: 0xcccccc,
-      transparent: true,
-      opacity: 0.7,
-    });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.35), bodyMat);
-    body.userData.baseOpacity = 0.7;
-    body.position.set(0, 0.06, 0);
-    body.rotation.z = Math.random() * 0.1 - 0.05;
-    body.rotation.x = Math.random() * 0.1 - 0.05;
-    group.add(body);
+    // Slight random rotation
+    mesh.rotation.z = Math.random() * Math.PI * 2;
 
-    // Skull (small sphere)
-    const skullMat = new THREE.MeshBasicMaterial({
-      color: 0xeeeeee,
-      transparent: true,
-      opacity: 0.6,
-    });
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), skullMat);
-    skull.userData.baseOpacity = 0.6;
-    skull.position.set(0, 0.12, 0.15);
-    group.add(skull);
-
-    // Bone cross (two thin boxes)
-    const boneMat = new THREE.MeshBasicMaterial({
-      color: 0xdddddd,
-      transparent: true,
-      opacity: 0.5,
-    });
-    const hBone = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.02, 0.02), boneMat);
-    hBone.userData.baseOpacity = 0.5;
-    hBone.position.set(0, 0.08, -0.05);
-    group.add(hBone);
-    const vBone = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.15), boneMat);
-    vBone.userData.baseOpacity = 0.5;
-    vBone.position.set(0, 0.08, -0.05);
-    group.add(vBone);
-
-    group.position.set(x, 0, z);
-    group.rotation.y = Math.random() * Math.PI * 2;
-    this.scene.add(group);
-    this.corpseGroups.push(group);
+    this.scene.add(mesh);
+    this.corpseGroups.push(mesh);
     this.corpseTimers.push(18 + Math.random() * 4); // 18-22 seconds lifetime
   }
 
