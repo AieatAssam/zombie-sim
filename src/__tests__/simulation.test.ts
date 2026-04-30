@@ -16,7 +16,7 @@ describe('Simulation', () => {
 
     it('should create 1 initial zombie', () => {
       const state = sim.state;
-      expect(state.stats.zombies).toBe(4);
+      expect(state.stats.zombies).toBe(2);
     });
 
     it('should start on day 1 with time around dawn', () => {
@@ -75,7 +75,7 @@ describe('Simulation', () => {
       const mil2 = sim.state.entities.filter(e => e.type === 'military');
       if (mil2.length > 0) {
         const soldier = mil2[0];
-        expect(soldier.magazineSize).toBe(5);
+        expect(soldier.magazineSize).toBe(8);
         expect(soldier.color).toBe('#ff3333');
         // Soldier may be damaged or have fired by the time we check
         expect(soldier.hp).toBeGreaterThanOrEqual(30);
