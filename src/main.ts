@@ -102,13 +102,14 @@ legendPanel.innerHTML = `
   <div class="legend-item"><span class="chart-line chart-civ"></span> Civilians (blue)</div>
   <div class="legend-item"><span class="chart-line chart-zom"></span> Zombies (green)</div>
   <div class="legend-item"><span class="chart-line chart-mil"></span> Military (red)</div>
-  <div class="legend-buildings-title">🏢 BUILDINGS:</div>
-  <div class="legend-item"><span class="legend-icon legend-shop"></span> 🏪 Shop = Food</div>
-  <div class="legend-item"><span class="legend-icon legend-office"></span> 🏢 Office = Food (low)</div>
-  <div class="legend-item"><span class="legend-icon legend-house"></span> 🏠 House = Shelter</div>
-  <div class="legend-item"><span class="legend-icon legend-ware"></span> 🏭 Warehouse = Ammo + Food</div>
-  <div class="legend-item"><span class="legend-icon legend-police"></span> 🚨 Police = Ammo (high)</div>
   <div class="legend-hint">Press L to hide</div>
+  <div class="legend-buildings-title">🏢 BUILDING OCCUPANCY:</div>
+  <div class="legend-item">🔵 Blue dots on roof = people inside</div>
+  <div class="legend-buildings-title">🏢 BUILDING TYPES:</div>
+  <div class="legend-item">🏪 Shop = 🍔 Food | 🏢 Office = 🥗 Food (low)</div>
+  <div class="legend-item">🏠 House = 🏠 Shelter | 🏭 Warehouse = 📦 Ammo + Food</div>
+  <div class="legend-item">🚨 Police = 🔫 Ammo (high)</div>
+  <div class="legend-hint"></div>
 `;
 document.getElementById('ui-overlay')!.appendChild(legendPanel);
 legendPanel.classList.add('visible');

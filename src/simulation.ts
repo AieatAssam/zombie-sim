@@ -573,6 +573,13 @@ export class Simulation {
     if (e.hunger <= -10) {
       e.state = 'dead';
       this.state.stats.civiliansStarved++;
+      // Signal for renderer to create a blood pool
+      this.state.events.push({
+        time: this.state.totalTime,
+        day: this.state.day,
+        text: `CORPSE:${e.x},${e.z}`,
+        type: 'death',
+      });
       return;
     }
 
@@ -784,7 +791,7 @@ export class Simulation {
             e.wanderAngle = Math.random() * Math.PI * 2;
             e.wanderTimer = 1 + Math.random() * 2;
           }
-          const spd = e.speed * 1.4; // DESPERATE: faster, takes risks
+          const spd = e.speed * 0.5; // Starving: weak, moves slowly
           e.vx += Math.cos(e.wanderAngle) * spd * dt * 0.5;
           e.vz += Math.sin(e.wanderAngle) * spd * dt * 0.5;
         }

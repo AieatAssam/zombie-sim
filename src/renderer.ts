@@ -505,44 +505,6 @@ export class Renderer3D {
         this.specialBuildingLights.push(beacon);
       }
 
-      // Shop — yellow cube marker above roof
-      if (b.type === 'shop') {
-        const signMat = new THREE.MeshStandardMaterial({
-          color: 0xffdd44,
-          emissive: 0xffdd44,
-          emissiveIntensity: 0.4,
-        });
-        const sign = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.4), signMat);
-        sign.position.set(b.x, b.h + 0.12, b.z);
-        this.scene.add(sign);
-        this.specialBuildingLights.push(sign);
-      }
-
-      // Warehouse — small gray cube marking
-      if (b.type === 'warehouse') {
-        const markMat = new THREE.MeshStandardMaterial({
-          color: 0x999999,
-          emissive: 0x999999,
-          emissiveIntensity: 0.2,
-        });
-        const mark = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.4), markMat);
-        mark.position.set(b.x, b.h + 0.1, b.z);
-        this.scene.add(mark);
-        this.specialBuildingLights.push(mark);
-      }
-
-      // House — small white/gray marker
-      if (b.type === 'house') {
-        const houseMat = new THREE.MeshStandardMaterial({
-          color: 0xcccccc,
-          emissive: 0xcccccc,
-          emissiveIntensity: 0.15,
-        });
-        const mark = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.08, 0.25), houseMat);
-        mark.position.set(b.x, b.h + 0.08, b.z);
-        this.scene.add(mark);
-        this.specialBuildingLights.push(mark);
-      }
 
       // Windows with glow at night — 4 sides, more windows
       const hasWindows = b.type !== 'warehouse';
@@ -826,6 +788,11 @@ export class Renderer3D {
           if (parts.length === 4) {
             this.spawnTracer(parts[0], parts[1], parts[2], parts[3], hit);
           }
+        }
+      } else if (ev.text.startsWith('CORPSE:')) {
+        const parts = ev.text.slice(7).split(',').map(Number);
+        if (parts.length === 2) {
+          this.createCorpse(parts[0], parts[1]);
         }
       }
     }
