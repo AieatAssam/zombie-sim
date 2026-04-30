@@ -43,15 +43,6 @@ export class Renderer3D {
   private particleData: { vx: number; vz: number; life: number; maxLife: number; r: number; g: number; b: number }[] = [];
   private particleIdx = 0;
 
-  // Ambient dust particles
-  private dustParticles: THREE.Points;
-  private dustPositions: Float32Array;
-  private dustVelocities: Float32Array;
-
-  // Ember/ash particles
-  private emberParticles: THREE.Points;
-  private emberPositions: Float32Array;
-  private emberVelocities: Float32Array;
 
   // Sky / atmosphere
   private sky: THREE.Mesh;
@@ -345,63 +336,7 @@ export class Renderer3D {
     this.particles = new THREE.Points(this.particleGeom, particleMat);
     this.scene.add(this.particles);
 
-    // ─── Ambient dust particles ───
-    const DUST_COUNT = 600;
-    this.dustPositions = new Float32Array(DUST_COUNT * 3);
-    this.dustVelocities = new Float32Array(DUST_COUNT * 3);
-    const dustSizes = new Float32Array(DUST_COUNT);
-    for (let i = 0; i < DUST_COUNT; i++) {
-      this.dustPositions[i * 3] = (Math.random() - 0.5) * 60;
-      this.dustPositions[i * 3 + 1] = Math.random() * 10 + 1;
-      this.dustPositions[i * 3 + 2] = (Math.random() - 0.5) * 60;
-      this.dustVelocities[i * 3] = (Math.random() - 0.5) * 0.3;
-      this.dustVelocities[i * 3 + 1] = (Math.random() - 0.5) * 0.1;
-      this.dustVelocities[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
-      dustSizes[i] = 0.12 + Math.random() * 0.25;
-    }
-    const dustGeom = new THREE.BufferGeometry();
-    dustGeom.setAttribute('position', new THREE.BufferAttribute(this.dustPositions, 3));
-    dustGeom.setAttribute('size', new THREE.BufferAttribute(dustSizes, 1));
-    const dustMat = new THREE.PointsMaterial({
-      color: 0xcceeff,
-      size: 0.18,
-      transparent: true,
-      opacity: 0.2,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      sizeAttenuation: true,
-    });
-    this.dustParticles = new THREE.Points(dustGeom, dustMat);
-    this.scene.add(this.dustParticles);
 
-    // ─── Ember/ash particles near buildings (orange, slowly rising) ───
-    const EMBER_COUNT = 100;
-    this.emberPositions = new Float32Array(EMBER_COUNT * 3);
-    this.emberVelocities = new Float32Array(EMBER_COUNT * 3);
-    const emberSizes = new Float32Array(EMBER_COUNT);
-    for (let i = 0; i < EMBER_COUNT; i++) {
-      this.emberPositions[i * 3] = (Math.random() - 0.5) * 50;
-      this.emberPositions[i * 3 + 1] = Math.random() * 8 + 0.5;
-      this.emberPositions[i * 3 + 2] = (Math.random() - 0.5) * 50;
-      this.emberVelocities[i * 3] = (Math.random() - 0.5) * 0.15;
-      this.emberVelocities[i * 3 + 1] = 0.2 + Math.random() * 0.3;
-      this.emberVelocities[i * 3 + 2] = (Math.random() - 0.5) * 0.15;
-      emberSizes[i] = 0.04 + Math.random() * 0.08;
-    }
-    const emberGeom = new THREE.BufferGeometry();
-    emberGeom.setAttribute('position', new THREE.BufferAttribute(this.emberPositions, 3));
-    emberGeom.setAttribute('size', new THREE.BufferAttribute(emberSizes, 1));
-    const emberMat = new THREE.PointsMaterial({
-      color: 0xff6633,
-      size: 0.1,
-      transparent: true,
-      opacity: 0.3,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      sizeAttenuation: true,
-    });
-    this.emberParticles = new THREE.Points(emberGeom, emberMat);
-    this.scene.add(this.emberParticles);
 
     // Resize
     window.addEventListener('resize', () => {
@@ -892,14 +827,14 @@ export class Renderer3D {
     const time = state.timeOfDay;
     const isNight = time > 0.65 || time < 0.08;
 
-    // Day factor (0=night, 1=day)
+    // Smoother day/night transition using sinusoidal day factor
+    // Maps timeOfDay (0-1) to a smooth 0-1-0 curve
+    // Peak daylight at time=0.25, deepest night at time=0.75
     let dayFactor: number;
-    if (time < 0.08) dayFactor = time / 0.08;
-    else if (time < 0.35) dayFactor = 1;
-    else if (time < 0.5) dayFactor = 1 - (time - 0.35) / 0.15;
-    else if (time < 0.65) dayFactor = (time - 0.5) / 0.15;
-    else dayFactor = 0;
-    dayFactor = Math.max(0, Math.min(1, dayFactor));
+    // Use a smooth sine wave for lighting: peak at time 0.25, trough at 0.75
+    const sunAngle2 = (time - 0.25) * Math.PI * 2;
+    dayFactor = (Math.cos(sunAngle2) + 1) * 0.5; // 0 at night, 1 at noon
+    dayFactor = Math.max(0.05, Math.min(1, dayFactor)); // Never fully dark
 
     // ─── Night overlay ───
     (this.nightOverlay.material as THREE.MeshBasicMaterial).opacity = (1 - dayFactor) * 0.4;
@@ -919,20 +854,26 @@ export class Renderer3D {
       }
     }
 
-    // ─── Sky color ───
+    // ─── Sky color — smooth gradient using dayFactor ───
+    // Day: blue (0x6a8aba), sunset: orange, night: deep blue-black
+    const dayColor = new THREE.Color(0x6a8aba);
+    const sunsetColor = new THREE.Color(0xd47a3a);
+    const nightColor = new THREE.Color(0x05051a);
+    
     let skyColor: THREE.Color;
-    if (dayFactor > 0.5) {
-      skyColor = new THREE.Color(0x4a6a9a);
-    } else if (time > 0.35 && time < 0.5) {
-      const sunsetT = (time - 0.35) / 0.15;
-      skyColor = new THREE.Color(1, 0.5 + 0.3 * (1 - sunsetT), 0.2 + 0.3 * (1 - sunsetT));
-    } else if (time > 0.5 && time < 0.65) {
-      const sunriseT = (time - 0.5) / 0.15;
-      skyColor = new THREE.Color(1, 0.5 + 0.3 * sunriseT, 0.2 + 0.3 * sunriseT);
+    if (dayFactor > 0.6) {
+      // Full day
+      skyColor = dayColor;
+    } else if (dayFactor > 0.3) {
+      // Transition between day and sunset/sunrise
+      const t = (dayFactor - 0.3) / 0.3;
+      skyColor = sunsetColor.clone().lerp(dayColor, t);
     } else {
-      skyColor = new THREE.Color(0x05051a);
+      // Transition between night and sunset
+      const t = dayFactor / 0.3;
+      skyColor = nightColor.clone().lerp(sunsetColor, t);
     }
-    (this.sky.material as THREE.MeshBasicMaterial).color.lerp(skyColor, 0.05);
+    (this.sky.material as THREE.MeshBasicMaterial).color.lerp(skyColor, 0.03);
 
     // ─── Dynamic ambient based on camera height ───
     // When camera is high (zoomed out), boost ambient so city stays visible
@@ -989,12 +930,6 @@ export class Renderer3D {
 
     // ─── Update particles ───
     this.updateParticles(dt);
-
-    // ─── Update ambient dust ───
-    this.updateDustParticles(dt, dayFactor);
-
-    // ─── Update ember particles ───
-    this.updateEmberParticles(dt, state);
 
     // ─── Blood decal cleanup ───
     if (this.bloodDecals.length > 100) {
@@ -1395,55 +1330,7 @@ export class Renderer3D {
     (this.particles.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
   }
 
-  private updateDustParticles(dt: number, dayFactor: number): void {
-    const pos = this.dustPositions;
-    const vel = this.dustVelocities;
-    const dustMat = this.dustParticles.material as THREE.PointsMaterial;
-    // More visible during day too — bring up min opacity
-    dustMat.opacity = 0.12 + (1 - dayFactor) * 0.1;
-
-    for (let i = 0; i < pos.length / 3; i++) {
-      pos[i * 3] += vel[i * 3] * dt;
-      pos[i * 3 + 1] += vel[i * 3 + 1] * dt;
-      pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
-
-      if (pos[i * 3] > 30) pos[i * 3] = -30;
-      if (pos[i * 3] < -30) pos[i * 3] = 30;
-      if (pos[i * 3 + 2] > 30) pos[i * 3 + 2] = -30;
-      if (pos[i * 3 + 2] < -30) pos[i * 3 + 2] = 30;
-      if (pos[i * 3 + 1] > 12) pos[i * 3 + 1] = 1;
-      if (pos[i * 3 + 1] < 0) pos[i * 3 + 1] = 10;
-    }
-    (this.dustParticles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-  }
-
-  private updateEmberParticles(dt: number, state: SimulationState): void {
-    const pos = this.emberPositions;
-    const vel = this.emberVelocities;
-    const emberMat = this.emberParticles.material as THREE.PointsMaterial;
-    const isNight = state.timeOfDay > 0.65 || state.timeOfDay < 0.08;
-    emberMat.opacity = isNight ? 0.4 : 0.15;
-
-    for (let i = 0; i < pos.length / 3; i++) {
-      pos[i * 3] += vel[i * 3] * dt;
-      pos[i * 3 + 1] += vel[i * 3 + 1] * dt;
-      pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
-
-      // Slowly drift horizontally with gentle sine
-      vel[i * 3] += Math.sin(state.totalTime * 0.5 + i) * 0.01 * dt;
-      vel[i * 3 + 2] += Math.cos(state.totalTime * 0.5 + i * 0.7) * 0.01 * dt;
-
-      if (pos[i * 3] > 25) pos[i * 3] = -25;
-      if (pos[i * 3] < -25) pos[i * 3] = 25;
-      if (pos[i * 3 + 2] > 25) pos[i * 3 + 2] = -25;
-      if (pos[i * 3 + 2] < -25) pos[i * 3 + 2] = 25;
-      if (pos[i * 3 + 1] > 10) { pos[i * 3 + 1] = 0.5; }
-      if (pos[i * 3 + 1] < 0) pos[i * 3 + 1] = 8 + Math.random() * 2;
-    }
-    (this.emberParticles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-  }
-
-  private updateTracers(dt: number): void {
+    private updateTracers(dt: number): void {
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const tracer = this.tracers[i];
       const mat = tracer.material as (THREE.LineBasicMaterial | THREE.LineDashedMaterial);
