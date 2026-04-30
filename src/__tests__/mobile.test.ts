@@ -3,7 +3,6 @@ import { chromium } from 'playwright-core';
 
 describe('Mobile Viewport', () => {
   const BASE_OPTS = {
-    executablePath: '/home/openclaw/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome',
     args: ['--no-sandbox', '--headless=new'],
   };
   it('should not have legend covering the screen top on iPhone 12 (390x844)', async () => {
