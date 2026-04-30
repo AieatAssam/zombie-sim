@@ -590,7 +590,7 @@ export class Renderer3D {
         emissive: b.type === 'police' ? new THREE.Color(0x224466) : new THREE.Color(0x000000),
         emissiveIntensity: b.type === 'police' ? 0.15 : 0,
       });
-      const geom = new THREE.BoxGeometry(b.w, b.h, b.d, 3, 3, 3);
+      const geom = new THREE.BoxGeometry(b.w, b.h, b.d, 2, 2, 2);
       const mesh = new THREE.Mesh(geom, mat);
       mesh.position.set(b.x, b.h / 2, b.z);
       mesh.castShadow = true;
@@ -617,50 +617,15 @@ export class Renderer3D {
         emissive: roofCol,
         emissiveIntensity: 0.05,
       });
-      const roof = new THREE.Mesh(new THREE.PlaneGeometry(b.w * 0.95, b.d * 0.95, 4, 4), roofMat2);
+      const roof = new THREE.Mesh(new THREE.PlaneGeometry(b.w * 0.95, b.d * 0.95, 2, 2), roofMat2);
       roof.rotation.x = -Math.PI / 2;
       roof.position.set(b.x, b.h + 0.05, b.z);
       this.scene.add(roof);
       this.buildingMeshes.push(roof);
 
-      // Roof edge trim — thin raised border
-      const trimMat = new THREE.MeshStandardMaterial({
-        color: roofCol,
-        roughness: 0.6,
-        metalness: 0.2,
-        emissive: roofCol,
-        emissiveIntensity: 0.02,
-      });
-      const trimH = 0.06;
-      const trimW = 0.08;
-      // Four strips around roof edge
-      const trimPositions = [
-        { x: b.x, z: b.z - b.d / 2 + 0.05, w: b.w + 0.1, d: trimW }, // front
-        { x: b.x, z: b.z + b.d / 2 - 0.05, w: b.w + 0.1, d: trimW }, // back
-        { x: b.x - b.w / 2 + 0.05, z: b.z, w: trimW, d: b.d + 0.1 }, // left
-        { x: b.x + b.w / 2 - 0.05, z: b.z, w: trimW, d: b.d + 0.1 }, // right
-      ];
-      for (const tp of trimPositions) {
-        const trim = new THREE.Mesh(new THREE.BoxGeometry(tp.w, trimH, tp.d), trimMat);
-        trim.position.set(tp.x, b.h + trimH / 2, tp.z);
-        this.scene.add(trim);
-        this.buildingMeshes.push(trim);
-      }
 
-      // Door marker — small dark rectangle at base of front side
-      if (b.w > 1.5 && b.d > 1.5) {
-        const doorMat = new THREE.MeshStandardMaterial({
-          color: 0x1a1a1a,
-          roughness: 0.9,
-          metalness: 0.0,
-        });
-        const doorW = b.w * 0.22;
-        const doorH = 0.35;
-        const door = new THREE.Mesh(new THREE.PlaneGeometry(doorW, doorH), doorMat);
-        door.position.set(b.x, doorH / 2, b.z + b.d / 2 + 0.01);
-        this.scene.add(door);
-        this.buildingMeshes.push(door);
-      }
+
+
 
       // Ground-contact shadow/glow at building base for ambient occlusion
       const contactMat = new THREE.MeshBasicMaterial({
@@ -700,16 +665,7 @@ export class Renderer3D {
         this.scene.add(lightBar2);
         this.specialBuildingLights.push(lightBar2);
 
-        // Small glowing cube on top
-        const beaconMat = new THREE.MeshStandardMaterial({
-          color: 0xff0044,
-          emissive: 0xff0044,
-          emissiveIntensity: 1.5,
-        });
-        const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.15, 0.25), beaconMat);
-        beacon.position.set(b.x, b.h + 0.18, b.z);
-        this.scene.add(beacon);
-        this.specialBuildingLights.push(beacon);
+
       }
 
 
