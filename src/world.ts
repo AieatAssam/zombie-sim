@@ -26,12 +26,12 @@ const SPECIAL_TYPES = ['police', 'hospital'] as const;
 
 const COLORS: Record<string, string> = {
   house: '#8B7355',
-  shop: '#CD853F',
+  shop: '#C4A86A',
   apt: '#6B7B8D',
   office: '#7B8D8E',
-  warehouse: '#8E8E8E',
+  warehouse: '#6B6B6B',
   police: '#2C3E50',
-  hospital: '#8B4513',
+  hospital: '#6B3010',
 };
 
 function seededRandom(seed: number): () => number {

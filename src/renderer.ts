@@ -234,12 +234,23 @@ export class Renderer3D {
     glowRing.lookAt(0, 0, 0);
     this.moon.add(glowRing);
 
-    // ─── Ground ───
-    const groundGeom = new THREE.PlaneGeometry(70, 70);
+    // ─── Ground with higher resolution and subtle vertex color variation ───
+    const groundGeom = new THREE.PlaneGeometry(70, 70, 20, 20);
+    // Add subtle random tint per vertex for ground texture variation
+    const posAttr = groundGeom.attributes.position;
+    const colors = new Float32Array(posAttr.count * 3);
+    for (let i = 0; i < posAttr.count; i++) {
+      const variation = 0.85 + Math.random() * 0.3;
+      colors[i * 3] = 0.1 * variation;
+      colors[i * 3 + 1] = 0.16 * variation;
+      colors[i * 3 + 2] = 0.1 * variation;
+    }
+    groundGeom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     const groundMat = new THREE.MeshStandardMaterial({
       color: 0x1a2a1a,
       roughness: 0.9,
       metalness: 0.0,
+      vertexColors: true,
     });
     this.ground = new THREE.Mesh(groundGeom, groundMat);
     this.ground.rotation.x = -Math.PI / 2;
@@ -248,7 +259,7 @@ export class Renderer3D {
     this.scene.add(this.ground);
 
     // ─── Grid helper ───
-    this.gridHelper = new THREE.GridHelper(70, 30, 0x2a3a2a, 0x1a2a1a);
+    this.gridHelper = new THREE.GridHelper(70, 50, 0x2a3a2a, 0x1a2a1a);
     this.gridHelper.position.y = 0.01;
     this.gridHelper.material.transparent = true;
     this.gridHelper.material.opacity = 0.2;
@@ -269,14 +280,14 @@ export class Renderer3D {
     this.scene.add(this.nightOverlay);
 
     // ─── Entity geometry cache ───
-    this.civilianGeom = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 8);
-    this.civilianHeadGeom = new THREE.SphereGeometry(0.18, 8, 8);
-    this.zombieGeom = new THREE.ConeGeometry(0.35, 0.75, 7);
-    this.militaryGeom = new THREE.BoxGeometry(0.45, 0.6, 0.45);
+    this.civilianGeom = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 12, 3);
+    this.civilianHeadGeom = new THREE.SphereGeometry(0.18, 12, 8);
+    this.zombieGeom = new THREE.ConeGeometry(0.35, 0.75, 10);
+    this.militaryGeom = new THREE.BoxGeometry(0.45, 0.6, 0.45, 2, 2, 2);
     this.antennaGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.2, 3);
     this.noAmmoIndicatorGeom = new THREE.ConeGeometry(0.08, 0.12, 3);
     this.starvingIndicatorGeom = new THREE.ConeGeometry(0.15, 0.25, 6);
-    this.occupantDotGeom = new THREE.PlaneGeometry(0.5, 0.5);
+    this.occupantDotGeom = new THREE.PlaneGeometry(0.5, 0.5, 2, 2);
 
     // ─── Particle system (effects) ───
     this.particleGeom = new THREE.BufferGeometry();
@@ -350,10 +361,10 @@ export class Renderer3D {
   buildCity(state: SimulationState): void {
     this.clearMeshes();
 
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.9, metalness: 0.15 });
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.85, metalness: 0.3 });
     const roadEdgeMat = new THREE.MeshStandardMaterial({ color: 0x4a4a5a, roughness: 0.8, metalness: 0.1 });
     for (const r of state.map.roads) {
-      const geom = new THREE.PlaneGeometry(r.w * 0.95, r.d * 0.95);
+      const geom = new THREE.PlaneGeometry(r.w * 0.95, r.d * 0.95, 4, 4);
       const mesh = new THREE.Mesh(geom, roadMat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set(r.x, 0.01, r.z);
@@ -438,7 +449,7 @@ export class Renderer3D {
         emissive: b.type === 'police' ? new THREE.Color(0x224466) : new THREE.Color(0x000000),
         emissiveIntensity: b.type === 'police' ? 0.15 : 0,
       });
-      const geom = new THREE.BoxGeometry(b.w, b.h, b.d, 2, 2, 2);
+      const geom = new THREE.BoxGeometry(b.w, b.h, b.d, 4, 4, 4);
       const mesh = new THREE.Mesh(geom, mat);
       mesh.position.set(b.x, b.h / 2, b.z);
       mesh.castShadow = true;
@@ -447,16 +458,45 @@ export class Renderer3D {
       this.scene.add(mesh);
       this.buildingMeshes.push(mesh);
 
-      // Roof
+      // Colored roof by building type (instead of icons)
+      const roofColors: Record<string, number> = {
+        shop: 0xffdd44,      // Yellow — food
+        office: 0xff8844,    // Orange — food (low)
+        house: 0xcccccc,     // Light gray — shelter
+        warehouse: 0x666666, // Dark gray — ammo + food
+        police: 0x2244aa,    // Blue — ammo (high)
+        hospital: 0x8B4513,  // Brown — (no function)
+      };
+      const defaultColor = 0x888888;
+      const roofCol = new THREE.Color(roofColors[b.type] || defaultColor);
       const roofMat2 = new THREE.MeshStandardMaterial({
-        color: col.clone().multiplyScalar(0.7),
+        color: roofCol,
         roughness: 0.8,
+        metalness: 0.1,
+        emissive: roofCol,
+        emissiveIntensity: 0.05,
       });
-      const roof = new THREE.Mesh(new THREE.PlaneGeometry(b.w * 0.9, b.d * 0.9), roofMat2);
+      const roof = new THREE.Mesh(new THREE.PlaneGeometry(b.w * 0.95, b.d * 0.95, 4, 4), roofMat2);
       roof.rotation.x = -Math.PI / 2;
-      roof.position.set(b.x, b.h + 0.03, b.z);
+      roof.position.set(b.x, b.h + 0.05, b.z);
       this.scene.add(roof);
       this.buildingMeshes.push(roof);
+
+      // Ground-contact shadow/glow at building base for ambient occlusion
+      const contactMat = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.08,
+        depthWrite: false,
+      });
+      const contactShadow = new THREE.Mesh(
+        new THREE.PlaneGeometry(b.w * 1.05, b.d * 1.05),
+        contactMat
+      );
+      contactShadow.rotation.x = -Math.PI / 2;
+      contactShadow.position.set(b.x, 0.01, b.z);
+      this.scene.add(contactShadow);
+      this.buildingMeshes.push(contactShadow);
 
       // Hospital red cross on roof
       if (b.type === 'hospital') {
@@ -1330,7 +1370,7 @@ export class Renderer3D {
     this.decalCount++;
 
     const size = 0.1 + Math.random() * 0.2;
-    const geom = new THREE.CircleGeometry(size, 4);
+    const geom = new THREE.CircleGeometry(size, 16);
     const mat = new THREE.MeshBasicMaterial({
       color: new THREE.Color(0.5 + Math.random() * 0.3, 0.0, 0.0),
       transparent: true,
@@ -1352,7 +1392,7 @@ export class Renderer3D {
   private createCorpse(x: number, z: number): void {
     const size = 0.2 + Math.random() * 0.15;
     const opacity = 0.5 + Math.random() * 0.3;
-    const geom = new THREE.CircleGeometry(size, 8);
+    const geom = new THREE.CircleGeometry(size, 16);
     const mat = new THREE.MeshBasicMaterial({
       color: new THREE.Color(0.4 + Math.random() * 0.15, 0.0, 0.0),
       transparent: true,
