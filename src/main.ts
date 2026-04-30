@@ -372,10 +372,6 @@ function gameLoop(time: number): void {
   statZom.textContent = String(stats.zombies);
   statMil.textContent = String(stats.military);
   statDead.textContent = String(stats.dead);
-  statFood.textContent = `${stats.foodSupply}%`;
-
-  // Ammo HUD
-  if (statAmmo) statAmmo.textContent = String(sim.state.totalAmmoRemaining);
 
   // Chaos meter
   if (statChaos) {

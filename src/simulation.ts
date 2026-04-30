@@ -181,7 +181,7 @@ export class Simulation {
     }
 
     // Patient zero — start with 2 zombies
-    const initialZombies = 2;
+    const initialZombies = 1;
     for (let zi = 0; zi < initialZombies; zi++) {
       let zx = (Math.random() - 0.5) * 20;
       let zz = (Math.random() - 0.5) * 20;
@@ -218,13 +218,13 @@ export class Simulation {
       aimTimer: 0,
       wanderTimer: Math.random() * 5, sleepTimer: 0, forageTimer: 0,
       buildingId: null, lastUpdateTime: 0,
-      speed: 3.0 + Math.random() * 1.2,
+      speed: 3.5 + Math.random() * 1.0,
       color: '#4499ff', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
       zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
       sprintTimer: 0,
       sprintCooldown: 0,
-      maxSprintTime: 1.5 + Math.random() * 1.0,
+      maxSprintTime: 2.0 + Math.random() * 1.5,
     };
   }
 
@@ -254,7 +254,7 @@ export class Simulation {
       type: 'military', x, z, vx: 0, vz: 0,
       state: 'patrolling', hp: 100, maxHp: 100,
       hunger: 70 + Math.random() * 30, fatigue: 10,
-      ammo: 150, maxAmmo: 150, magazineSize: 5, ammoInMag: 5, isReloading: false, reloadTimer: 0,
+      ammo: 200, maxAmmo: 200, magazineSize: 8, ammoInMag: 8, isReloading: false, reloadTimer: 0,
       attackCooldown: 0,
       targetId: null, wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: 1, sleepTimer: 0, forageTimer: 0,
@@ -396,7 +396,7 @@ export class Simulation {
 
     // ─── Game over checks ───
     // Loss: all civilians dead or turned. Military surviving doesn't count.
-    // Win: zombies eliminated AND at least some civilians survive.
+    // Win: zombies eliminated with civilians alive, OR civilians survive to Day 7.
     if (civ <= 0 && zomb > 0) {
       s.gameOver = true;
       s.gameOverReason = '💀 ALL CIVILIANS LOST. ZOMBIES WIN.';
@@ -407,8 +407,12 @@ export class Simulation {
       this.logEvent('☠️ GAME OVER — No civilians remain.', 'death');
     } else if (zomb <= 0 && civ > 0 && s.day > 2) {
       s.gameOver = true;
-      s.gameOverReason = '🎉 CITY SAVED! CIVILIANS PROTECTED.';
+      s.gameOverReason = '🎉 CITY SAVED! ZOMBIES ELIMINATED.';
       this.logEvent('✅ GAME OVER — Zombies eliminated! Civilians survive.', 'info');
+    } else if (s.day >= 7 && civ >= 10) {
+      s.gameOver = true;
+      s.gameOverReason = '🎉 SOCIETY SURVIVES! Day 7 reached with civilians.';
+      this.logEvent('✅ GAME OVER — Society endures! Civilians survive to Day 7.', 'info');
     }
   }
 
@@ -553,7 +557,7 @@ export class Simulation {
     // Small initial force arrives early, then scales with threat
     let targetSoldiers = 0;
 
-    if (totalThreat >= 2) targetSoldiers = 1;
+    if (totalThreat >= 1) targetSoldiers = 2;
     if (totalThreat >= 15) targetSoldiers = 2;
     if (totalThreat >= 35) targetSoldiers = 3;
     if (totalThreat >= 60) targetSoldiers = 4;
@@ -578,7 +582,7 @@ export class Simulation {
         s.entities.push(this.createMilitary(x + (Math.random() - 0.5) * 3, z + (Math.random() - 0.5) * 3));
         s.stats.military++;
       }
-      this.deploymentTimer = 1.5 + Math.random() * 1.5; // Cooldown between waves
+      this.deploymentTimer = 0.5 + Math.random() * 1.0; // Cooldown between waves
       this.logEvent(`🚁 ${toDeploy} soldier${toDeploy>1?'s':''} deployed. (${currentMil + toDeploy} total)`, 'military');
     }
   }
@@ -1199,7 +1203,7 @@ export class Simulation {
           // 50% chance to resist infection (take damage instead)
           if (Math.random() < 0.5) {
             // Resist! Civilian takes damage but doesn't turn
-            target.hp -= 35; // Less damage, 100 HP means 4 bites to kill
+            target.hp -= 25; // Less damage, 100 HP means 4 bites to kill
             if (target.hp <= 0) {
               target.state = 'dead';
               this.state.stats.civiliansStarved++;
@@ -1230,7 +1234,7 @@ export class Simulation {
           }
           this.logEventThrottled(`Zombie bit civilian #${target.id}!`, 'zombie', 2);
         } else if (target.type === 'military') {
-          target.hp -= 35;
+          target.hp -= 25;
           if (target.hp <= 0) {
             target.state = 'dead';
             this.logEvent(`Military unit #${target.id} killed by zombie.`, 'death');
@@ -1474,7 +1478,7 @@ export class Simulation {
       return;
     }
 
-    if (nearZombie && dist(e, nearZombie) < 20) {
+    if (nearZombie && dist(e, nearZombie) < 28) {
       e.state = 'engaging';
       const d = dist(e, nearZombie);
 
@@ -1491,7 +1495,7 @@ export class Simulation {
       }
 
       // ─── AIM TIMER + ACCURACY SYSTEM ───
-      if (d < 20 && e.attackCooldown <= 0) {
+      if (d < 28 && e.attackCooldown <= 0) {
         if (e.aimTimer <= 0 && e.ammoInMag > 0) {
           // Start aiming: 0.3-0.8 seconds
           e.isAiming = true;
@@ -1509,13 +1513,13 @@ export class Simulation {
           if (e.aimTimer <= 0 && e.ammoInMag > 0) {
             // Fire!
             e.ammoInMag -= 1;
-            e.attackCooldown = 0.6;
+            e.attackCooldown = 0.4;
             e.aimTimer = 0;
             e.isAiming = false;
 
             // Accuracy: hit chance = 95 - (distance * 2)
             // At distance 5 = 85%, at distance 15 = 65%, at distance 25 = 45%
-            const hitChance = Math.max(15, Math.floor(95 - d * 2));
+            const hitChance = Math.max(25, Math.floor(90 - d * 1.5));
             const hit = Math.random() * 100 < hitChance;
             const hitStr = hit ? 'HIT' : 'MISS';
 
@@ -1539,7 +1543,7 @@ export class Simulation {
             }
 
             if (hit) {
-              nearZombie.hp -= 15;
+              nearZombie.hp -= 30;
               if (nearZombie.hp <= 0) {
                 nearZombie.state = 'dead';
                 e.kills++;
