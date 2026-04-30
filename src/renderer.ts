@@ -252,10 +252,10 @@ export class Renderer3D {
     this.scene.add(this.nightOverlay);
 
     // ─── Entity geometry cache ───
-    this.civilianGeom = new THREE.CylinderGeometry(0.15, 0.2, 0.5, 6);
-    this.civilianHeadGeom = new THREE.SphereGeometry(0.12, 6, 6);
-    this.zombieGeom = new THREE.ConeGeometry(0.25, 0.55, 5);
-    this.militaryGeom = new THREE.BoxGeometry(0.3, 0.45, 0.3);
+    this.civilianGeom = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 6);
+    this.civilianHeadGeom = new THREE.SphereGeometry(0.18, 6, 6);
+    this.zombieGeom = new THREE.ConeGeometry(0.35, 0.75, 5);
+    this.militaryGeom = new THREE.BoxGeometry(0.45, 0.6, 0.45);
     this.antennaGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.2, 3);
     this.noAmmoIndicatorGeom = new THREE.ConeGeometry(0.08, 0.12, 3);
     this.starvingIndicatorGeom = new THREE.ConeGeometry(0.06, 0.08, 3);
@@ -349,10 +349,10 @@ export class Renderer3D {
       if (r.w > 2.8 || r.d > 2.8) {
         const isHorizontal = r.w > r.d;
         const len = isHorizontal ? r.w : r.d;
-        const segments = Math.floor(len / 0.6);
+        const segments = Math.floor(len / 0.8);
         for (let s = 0; s < segments; s += 2) {
-          const start = -len / 2 + s * 0.6;
-          const end = start + 0.3;
+          const start = -len / 2 + s * 0.8;
+          const end = start + 0.4;
           const pts: THREE.Vector3[] = [];
           if (isHorizontal) {
             pts.push(new THREE.Vector3(r.x + start, 0.03, r.z));
@@ -440,11 +440,11 @@ export class Renderer3D {
           emissive: 0xff0000,
           emissiveIntensity: 0.3,
         });
-        const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.05, 0.15), crossMat);
+        const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.2), crossMat);
         hBar.position.set(b.x, b.h + 0.06, b.z);
         this.scene.add(hBar);
         this.buildingMeshes.push(hBar);
-        const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.05, 0.6), crossMat);
+        const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.8), crossMat);
         vBar.position.set(b.x, b.h + 0.06, b.z);
         this.scene.add(vBar);
         this.buildingMeshes.push(vBar);
@@ -478,7 +478,7 @@ export class Renderer3D {
           emissive: 0xff0044,
           emissiveIntensity: 1.5,
         });
-        const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), beaconMat);
+        const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.15, 0.25), beaconMat);
         beacon.position.set(b.x, b.h + 0.18, b.z);
         this.scene.add(beacon);
         this.specialBuildingLights.push(beacon);
@@ -491,7 +491,7 @@ export class Renderer3D {
           emissive: 0xffdd44,
           emissiveIntensity: 0.4,
         });
-        const sign = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.12, 0.25), signMat);
+        const sign = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.4), signMat);
         sign.position.set(b.x, b.h + 0.12, b.z);
         this.scene.add(sign);
         this.specialBuildingLights.push(sign);
@@ -504,7 +504,7 @@ export class Renderer3D {
           emissive: 0x999999,
           emissiveIntensity: 0.2,
         });
-        const mark = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.1, 0.35), markMat);
+        const mark = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.4), markMat);
         mark.position.set(b.x, b.h + 0.1, b.z);
         this.scene.add(mark);
         this.specialBuildingLights.push(mark);
@@ -517,7 +517,7 @@ export class Renderer3D {
           emissive: 0xcccccc,
           emissiveIntensity: 0.15,
         });
-        const mark = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.06, 0.15), houseMat);
+        const mark = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.08, 0.25), houseMat);
         mark.position.set(b.x, b.h + 0.06, b.z);
         this.scene.add(mark);
         this.specialBuildingLights.push(mark);
@@ -753,10 +753,15 @@ export class Renderer3D {
     // ─── Handle shot events ───
     for (const ev of state.events) {
       if (ev.text.startsWith('SHOT:')) {
-        const parts = ev.text.split(':')[1].split(',').map(Number);
-        if (parts.length === 4) {
-          this.spawnTracer(parts[0], parts[1], parts[2], parts[3]);
-          this.spawnParticleBurst(parts[2], parts[3], 0x44ff44, 20);
+        const payload = ev.text.slice(5); // Remove 'SHOT:' prefix
+        const colonIdx = payload.indexOf(':');
+        if (colonIdx > 0) {
+          const hit = payload.slice(0, colonIdx) === 'HIT';
+          const parts = payload.slice(colonIdx + 1).split(',').map(Number);
+          if (parts.length === 4) {
+            this.spawnTracer(parts[0], parts[1], parts[2], parts[3], hit);
+            this.spawnParticleBurst(parts[2], parts[3], hit ? 0xff3333 : 0xff6666, 20);
+          }
         }
       }
     }
@@ -805,7 +810,7 @@ export class Renderer3D {
       if (!sprite) {
         // Create sprite with canvas texture
         sprite = this.createBuildingLabelSprite(count);
-        sprite.position.set(b.x, b.h + 1.0, b.z);
+        sprite.position.set(b.x, b.h + 3.0, b.z);
         this.scene.add(sprite);
         this.buildingLabelSprites.set(bId, sprite);
       } else {
@@ -825,8 +830,8 @@ export class Renderer3D {
 
   private createBuildingLabelSprite(count: number): THREE.Sprite {
     const canvas = document.createElement('canvas');
-    canvas.width = 64;
-    canvas.height = 64;
+    canvas.width = 128;
+    canvas.height = 128;
     const ctx = canvas.getContext('2d')!;
     this.drawBuildingLabel(ctx, count);
 
@@ -839,31 +844,34 @@ export class Renderer3D {
       sizeAttenuation: true,
     });
     const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(1.2, 1.2, 1);
+    sprite.scale.set(3.0, 3.0, 1);
     return sprite;
   }
 
   private drawBuildingLabel(ctx: CanvasRenderingContext2D, count: number): void {
-    ctx.clearRect(0, 0, 64, 64);
+    ctx.clearRect(0, 0, 128, 128);
 
     // Background circle
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
     ctx.beginPath();
-    ctx.arc(32, 32, 24, 0, Math.PI * 2);
+    ctx.arc(64, 64, 50, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.strokeStyle = '#ffdd44';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(32, 32, 24, 0, Math.PI * 2);
+    ctx.arc(64, 64, 50, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Count text
-    ctx.fillStyle = '#ffdd44';
-    ctx.font = 'bold 22px monospace';
+    // Count text with thick black outline for readability
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 48px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(count), 32, 32);
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 4;
+    ctx.strokeText(String(count), 64, 64);
+    ctx.fillText(String(count), 64, 64);
   }
 
   private updateEntityMeshes(state: SimulationState, dayFactor: number, time: number): void {
@@ -930,10 +938,29 @@ export class Renderer3D {
                 1 + Math.sin(time * 1.5 + e.id) * 0.04
               );
               group.rotation.y += 0.3 * (1/60);
-            } else if (e.type === 'military' && child.userData.isBody) {
-              // More visible antenna glow for military
-              mat.emissiveIntensity = 0.25;
-              mat.emissive.setHex(0xff3333);
+            } else if (e.type === 'military') {
+              // ─── Aiming indicator ───
+              if (e.isAiming && child.userData.isBody) {
+                // Pulsing yellow/orange when aiming
+                const aimPulse = 0.5 + Math.sin(time * 8 + e.id * 2) * 0.4;
+                mat.emissiveIntensity = aimPulse;
+                mat.emissive.setHex(0xffaa00);
+              } else if (child.userData.isBody) {
+                // Normal military body glow
+                mat.emissiveIntensity = 0.25;
+                mat.emissive.setHex(0xff3333);
+              }
+              // ─── Antenna changes color when aiming ───
+              if (e.isAiming && child.userData.isAntenna) {
+                const aimPulse = 0.6 + Math.sin(time * 10 + e.id) * 0.4;
+                mat.emissiveIntensity = aimPulse;
+                mat.emissive.setHex(0xffaa00);
+                mat.color.setHex(0xffcc44);
+              } else if (child.userData.isAntenna) {
+                mat.emissiveIntensity = 1.0;
+                mat.emissive.setHex(0xff3333);
+                mat.color.setHex(0xaaaaaa);
+              }
             } else if (child.userData.isBody) {
               mat.emissiveIntensity = 0.05;
             }
@@ -1150,13 +1177,14 @@ export class Renderer3D {
   private updateTracers(dt: number): void {
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const tracer = this.tracers[i];
-      const opacity = (tracer.material as THREE.LineBasicMaterial).opacity;
+      const mat = tracer.material as (THREE.LineBasicMaterial | THREE.LineDashedMaterial);
+      const opacity = mat.opacity;
       if (opacity <= 0) {
         this.scene.remove(tracer);
         tracer.geometry.dispose();
         this.tracers.splice(i, 1);
       } else {
-        (tracer.material as THREE.LineBasicMaterial).opacity -= dt * 3;
+        mat.opacity -= dt * 3;
       }
     }
   }
@@ -1179,22 +1207,43 @@ export class Renderer3D {
     }
   }
 
-  spawnTracer(fromX: number, fromZ: number, toX: number, toZ: number): void {
-    const lineMat = new THREE.LineBasicMaterial({
-      color: 0xffff44,
-      transparent: true,
-      opacity: 1.0,
-    });
-    const points = [
-      new THREE.Vector3(fromX, 0.4, fromZ),
-      new THREE.Vector3(toX, 0.1, toZ),
-    ];
-    const geom = new THREE.BufferGeometry().setFromPoints(points);
-    const line = new THREE.Line(geom, lineMat);
+  spawnTracer(fromX: number, fromZ: number, toX: number, toZ: number, hit: boolean): void {
+    let line: THREE.Line;
+    if (hit) {
+      // Solid red line for HIT
+      const lineMat = new THREE.LineBasicMaterial({
+        color: 0xff3333,
+        transparent: true,
+        opacity: 1.0,
+        linewidth: 2,
+      });
+      const points = [
+        new THREE.Vector3(fromX, 0.4, fromZ),
+        new THREE.Vector3(toX, 0.1, toZ),
+      ];
+      const geom = new THREE.BufferGeometry().setFromPoints(points);
+      line = new THREE.Line(geom, lineMat);
+      this.addBloodDecal(toX, toZ);
+    } else {
+      // Dashed red line for MISS
+      const lineMat = new THREE.LineDashedMaterial({
+        color: 0xff6666,
+        transparent: true,
+        opacity: 1.0,
+        dashSize: 0.5,
+        gapSize: 0.3,
+        linewidth: 1,
+      });
+      const points = [
+        new THREE.Vector3(fromX, 0.4, fromZ),
+        new THREE.Vector3(toX, 0.1, toZ),
+      ];
+      const geom = new THREE.BufferGeometry().setFromPoints(points);
+      line = new THREE.Line(geom, lineMat);
+      line.computeLineDistances();
+    }
     this.scene.add(line);
     this.tracers.push(line);
-
-    this.addBloodDecal(toX, toZ);
   }
 
   addBloodDecal(x: number, z: number): void {

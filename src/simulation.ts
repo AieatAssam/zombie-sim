@@ -48,6 +48,10 @@ export interface Entity {
   biteAttempts: number;
   zombieAge: number;
   feedingTimer: number;
+  isAiming: boolean;
+  alertTimer: number;
+  alertX: number;
+  alertZ: number;
 }
 
 export interface SimulationState {
@@ -70,6 +74,9 @@ export interface PopulationStats {
   civilians: number;
   zombies: number;
   military: number;
+  zombiesKilledByMilitary: number;
+  civiliansTurned: number;
+  civiliansStarved: number;
   dead: number;
   totalBorn: number;
   totalInfected: number;
@@ -151,7 +158,7 @@ export class Simulation {
       timeOfDay: 0.08,
       day: 1,
       totalTime: 0,
-      stats: { civilians: civilianCount, zombies: 1, military: 0, dead: 0, totalBorn: 0, totalInfected: 0, totalKilled: 0, foodSupply: 100 },
+      stats: { civilians: civilianCount, zombies: 1, military: 0, zombiesKilledByMilitary: 0, civiliansTurned: 0, civiliansStarved: 0, dead: 0, totalBorn: 0, totalInfected: 0, totalKilled: 0, foodSupply: 100 },
       map,
       events: [],
       gameOver: false,
@@ -177,7 +184,7 @@ export class Simulation {
       speed: 3.0 + Math.random() * 1.2,
       color: '#4499ff', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
-      zombieAge: 0, feedingTimer: 0,
+      zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
     };
   }
 
@@ -194,7 +201,7 @@ export class Simulation {
       speed: 2.4 + Math.random() * 0.75,
       color: '#33ff33', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
-      zombieAge: 0, feedingTimer: 0,
+      zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
     };
   }
 
@@ -212,7 +219,7 @@ export class Simulation {
       speed: 3.0 + Math.random() * 0.75,
       color: '#ff3333', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: squadId || null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
-      zombieAge: 0, feedingTimer: 0,
+      zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
     };
   }
 
@@ -277,9 +284,9 @@ export class Simulation {
     s.entities = s.entities.filter(e => e.state !== 'dead');
 
     // ─── Stats ───
-    let civ = 0, zomb = 0, mil = 0, dead = 0;
+    let civ = 0, zomb = 0, mil = 0;
     for (const e of s.entities) {
-      if (e.state === 'dead') { dead++; continue; }
+      if (e.state === 'dead') continue;
       if (e.type === 'civilian') civ++;
       else if (e.type === 'zombie') zomb++;
       else if (e.type === 'military') mil++;
@@ -288,7 +295,7 @@ export class Simulation {
     s.stats.civilians = civ;
     s.stats.zombies = zomb;
     s.stats.military = mil;
-    s.stats.dead = dead;
+    s.stats.dead = s.stats.zombiesKilledByMilitary + s.stats.civiliansTurned + s.stats.civiliansStarved;
 
     // Food supply
     let totalFood = 0;
@@ -315,7 +322,7 @@ export class Simulation {
     // Chaos level (0-100)
     s.chaosLevel = Math.min(100, Math.round(
       (zomb > 0 ? (zomb / Math.max(1, civ + mil)) * 60 : 0) +
-      (dead > 50 ? 20 : dead > 20 ? 10 : 0) +
+      (s.stats.dead > 50 ? 20 : s.stats.dead > 20 ? 10 : 0) +
       (zomb > 100 ? 20 : zomb > 50 ? 10 : 0)
     ));
 
@@ -566,6 +573,7 @@ export class Simulation {
       e.hp -= 4 * dt;
       if (e.hp <= 0) {
         e.state = 'dead';
+        this.state.stats.civiliansStarved++;
         return;
       }
     }
@@ -654,6 +662,7 @@ export class Simulation {
             e.zombieAge = 0;
             e.buildingId = null;
             this.state.stats.totalInfected++;
+            this.state.stats.civiliansTurned++;
           } else {
             // Flee away from zombie at 2.5x speed with random jitter
             const dx = e.x - z.x;
@@ -838,6 +847,11 @@ export class Simulation {
     e.attackCooldown -= dt;
     e.zombieAge += dt;
 
+    // Alert timer: count down when alerted by gunshots
+    if (e.alertTimer > 0) {
+      e.alertTimer -= dt;
+    }
+
     // Feeding timer: after biting, stay near for 2 seconds
     if (e.state === 'feeding') {
       e.feedingTimer -= dt;
@@ -852,29 +866,47 @@ export class Simulation {
     // Night speed boost
     const nightSpeedMul = isNight ? 1.35 : 1.0;
 
-    // Find the CLOSEST target — prefer civilian at same distance
+    // ─── Aggro system ───
+    // Visual aggro: 10 units, requires LOS check
+    // Audio aggro: 25 units (alertTimer active), no LOS needed
+    // Without aggro: random wandering with direction changes
+    const VISUAL_RANGE = 10;
+    const AUDIO_RANGE = 25;
+
     let bestTarget: Entity | null = null;
-    let bestDist = 999;
-    const civRange = 20;
-    const milRange = 18;
+    let bestDist = e.alertTimer > 0 ? AUDIO_RANGE : VISUAL_RANGE;
 
     for (const other of this.state.entities) {
       if (other.id === e.id || other.state === 'dead') continue;
       if (other.type !== 'civilian' && other.type !== 'military') continue;
       const d = dist(e, other);
-      const range = other.type === 'civilian' ? civRange : milRange;
-      if (d < range && d < bestDist) {
+      if (d < bestDist) {
+        // For visual aggro (no alert), check line of sight
+        if (e.alertTimer <= 0 && !this.hasClearShot(e, other)) continue;
         bestDist = d;
         bestTarget = other;
-      } else if (d < range && d === bestDist && other.type === 'civilian') {
-        // Prefer civilian at equal distance
-        bestTarget = other;
+      }
+    }
+
+    // If alerted but no target found, move toward alert source
+    if (e.alertTimer > 0 && !bestTarget) {
+      const dx = e.alertX - e.x;
+      const dz = e.alertZ - e.z;
+      const distToAlert = Math.sqrt(dx * dx + dz * dz);
+      if (distToAlert > 1) {
+        const len = distToAlert || 1;
+        const jitter = (Math.random() - 0.5) * 0.3;
+        const angle = Math.atan2(dz, dx) + jitter;
+        e.vx += Math.cos(angle) * e.speed * nightSpeedMul * 0.35 * dt;
+        e.vz += Math.sin(angle) * e.speed * nightSpeedMul * 0.35 * dt;
+        e.state = 'hunting';
+        return;
       }
     }
 
     const target = bestTarget;
 
-    // Horde attraction: older zombies are drawn to horde centers
+    // Horde attraction: older zombies are drawn to horde centers (gentle pull)
     if (this.hordeCenters.length > 0 && e.zombieAge > 5 && !target) {
       const nearestHorde = this.hordeCenters.reduce((a, b) =>
         dist(e, { x: a.x, z: a.z }) < dist(e, { x: b.x, z: b.z }) ? a : b
@@ -883,20 +915,21 @@ export class Simulation {
         const dx = nearestHorde.x - e.x;
         const dz = nearestHorde.z - e.z;
         const len = Math.sqrt(dx * dx + dz * dz) || 1;
-        e.vx += (dx / len) * e.speed * nightSpeedMul * 0.2 * dt;
-        e.vz += (dz / len) * e.speed * nightSpeedMul * 0.2 * dt;
+        e.vx += (dx / len) * e.speed * nightSpeedMul * 0.15 * dt;
+        e.vz += (dz / len) * e.speed * nightSpeedMul * 0.15 * dt;
       }
     }
 
-    // Wander when no target
+    // ─── No target: random wandering ───
     if (!target) {
       e.wanderTimer -= dt;
       if (e.wanderTimer <= 0) {
         e.wanderAngle = Math.random() * Math.PI * 2;
-        e.wanderTimer = 2 + Math.random() * 4;
+        e.wanderTimer = 2 + Math.random() * 3; // 2-5 seconds random direction
       }
-      e.vx += Math.cos(e.wanderAngle) * e.speed * nightSpeedMul * 0.3 * dt;
-      e.vz += Math.sin(e.wanderAngle) * e.speed * nightSpeedMul * 0.3 * dt;
+      const spd = e.speed * nightSpeedMul * (0.25 + Math.random() * 0.15);
+      e.vx += Math.cos(e.wanderAngle) * spd * dt;
+      e.vz += Math.sin(e.wanderAngle) * spd * dt;
       e.state = 'hunting';
       return;
     }
@@ -926,6 +959,7 @@ export class Simulation {
           e.state = 'feeding';
           e.feedingTimer = 2.0;
           this.state.stats.totalInfected++;
+          this.state.stats.civiliansTurned++;
           this.logEventThrottled(`Zombie turned civilian #${target.id} instantly!`, 'zombie', 2);
         } else if (target.type === 'military') {
           target.hp -= 20;
@@ -936,13 +970,15 @@ export class Simulation {
         }
       }
     } else {
-      // Chase — faster at night
+      // Chase — faster at night with random jitter to prevent single-file lines
       const dx = target.x - e.x;
       const dz = target.z - e.z;
       const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const jitter = (Math.random() - 0.5) * 0.4; // Slight randomness in chase direction
+      const chaseAngle = Math.atan2(dz, dx) + jitter;
       const chaseSpd = e.speed * 1.15 * nightSpeedMul;
-      e.vx += (dx / len) * chaseSpd * dt * 0.35;
-      e.vz += (dz / len) * chaseSpd * dt * 0.35;
+      e.vx += Math.cos(chaseAngle) * chaseSpd * dt * 0.35;
+      e.vz += Math.sin(chaseAngle) * chaseSpd * dt * 0.35;
       e.state = 'hunting';
     }
   }
@@ -1142,6 +1178,7 @@ export class Simulation {
       if (d < 15 && e.attackCooldown <= 0) {
         if (e.aimTimer <= 0 && e.ammoInMag > 0) {
           // Start aiming: 0.3-0.8 seconds
+          e.isAiming = true;
           e.aimTimer = 0.3 + Math.random() * 0.5;
           e.vx *= 0.9;
           e.vz *= 0.9;
@@ -1158,25 +1195,39 @@ export class Simulation {
             e.ammoInMag -= 1;
             e.attackCooldown = 1.5;
             e.aimTimer = 0;
-
-            // Always create tracer effect
-            this.state.events.push({
-              time: this.state.totalTime,
-              day: this.state.day,
-              text: `SHOT:${e.x},${e.z},${nearZombie.x},${nearZombie.z}`,
-              type: 'military',
-            });
+            e.isAiming = false;
 
             // Accuracy: hit chance = 100 - (distance * 5)
             // At distance 15 = 25%, at distance 5 = 75%
             const hitChance = Math.max(5, Math.floor(100 - d * 5));
             const hit = Math.random() * 100 < hitChance;
+            const hitStr = hit ? 'HIT' : 'MISS';
+
+            // Always create tracer effect with hit/miss info
+            this.state.events.push({
+              time: this.state.totalTime,
+              day: this.state.day,
+              text: `SHOT:${hitStr}:${e.x},${e.z},${nearZombie.x},${nearZombie.z}`,
+              type: 'military',
+            });
+
+            // Audio aggro: alert all zombies within 25 units of the shooter
+            for (const zombie of this.state.entities) {
+              if (zombie.type === 'zombie' && zombie.state !== 'dead') {
+                if (dist(e, zombie) < 25) {
+                  zombie.alertTimer = 5;
+                  zombie.alertX = e.x;
+                  zombie.alertZ = e.z;
+                }
+              }
+            }
 
             if (hit) {
               nearZombie.hp -= 15;
               if (nearZombie.hp <= 0) {
                 nearZombie.state = 'dead';
                 e.kills++;
+                this.state.stats.zombiesKilledByMilitary++;
                 this.logEventThrottled(`Military #${e.id} killed zombie #${nearZombie.id}.`, 'military', 0.3);
               }
             }

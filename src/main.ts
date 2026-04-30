@@ -20,6 +20,9 @@ const statFood = document.getElementById('stat-food')!;
 const statAmmo = document.getElementById('stat-ammo')!;
 const statChaos = document.getElementById('stat-chaos')!;
 const statStarving = document.getElementById('stat-starving')!;
+const statStarved = document.getElementById('stat-starved')!;
+const statTurned = document.getElementById('stat-turned')!;
+const statKilled = document.getElementById('stat-killed')!;
 const speedSlider = document.getElementById('speed-slider') as HTMLInputElement;
 const speedDisplay = document.getElementById('speed-display')!;
 const btnPause = document.getElementById('btn-pause')!;
@@ -383,6 +386,11 @@ function gameLoop(time: number): void {
 
   // Starving count
   if (statStarving) statStarving.textContent = String(sim.state.starvingCount);
+
+  // Death breakdown
+  if (statStarved) statStarved.textContent = String(sim.state.stats.civiliansStarved || 0);
+  if (statTurned) statTurned.textContent = String(sim.state.stats.civiliansTurned || 0);
+  if (statKilled) statKilled.textContent = String(sim.state.stats.zombiesKilledByMilitary || 0);
 
   // ─── Stat box alerts ───
   const zombieBox = document.querySelector('.zombie-stat') as HTMLElement;
