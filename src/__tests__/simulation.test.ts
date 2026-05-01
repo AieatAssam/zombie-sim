@@ -193,13 +193,9 @@ describe('Simulation', () => {
       
       sim.tick(0.5);
       
-      // Bite code ran: civilian either took damage, turned, or died
-      const outcomeHappened = (
-        civ.hp < 100 ||
-        civ.type === 'zombie' ||
-        civ.state === 'dead'
-      );
-      expect(outcomeHappened).toBe(true);
+      // Bite code ran: civilian either took damage, turned, or state changed
+      const changed = civ.hp < 100 || civ.type === 'zombie' || (civ.state as string) === 'dead';
+      expect(changed).toBe(true);
     });
 
     it('should kill civilian from bite damage when already critically injured', () => {
@@ -213,7 +209,8 @@ describe('Simulation', () => {
       sim.tick(0.5);
       
       // Civilian either died or turned — state changed from 'fleeing'
-      expect(civ.state === 'dead' || civ.type === 'zombie').toBe(true);
+      const changed = (civ.state as string) === 'dead' || civ.type === 'zombie';
+      expect(changed).toBe(true);
     });
   });
 
