@@ -3,3 +3,4 @@ dist
 coverage
 screenshot*
 !screenshot-v7.png
+!screenshot-v8.png

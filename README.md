@@ -2,247 +2,243 @@
 
 **A 3D real-time zombie outbreak simulation in your browser.**
 
-A city of 400 civilians, one zombie patient zero, and everything spiralling from there. Procedural city generation, emergent AI, and a surprisingly tense simulation of societal collapse.
+A city of 400 civilians, a zombie patient zero, and everything spiralling from there. Procedural city generation, emergent AI — just watch the collapse unfold.
 
-![Zombie Outbreak Simulator](screenshot-v7.png)
+![Zombie Outbreak Simulator](screenshot-v8.png)
 
-## 🎮 Features
+## 🌍 Simulation Features
 
-### Live Simulation
-- **400+ individuals** with layered AI — civilians seek food & shelter and flee zombies, zombies hunt in hordes, military deploys in coordinated squads
+### Population & AI
+- **400+ individuals** with layered autonomous AI — civilians seek food & shelter and flee zombies, zombies hunt in hordes, military deploys in coordinated squads
 - **Day/night cycle** with dynamic sky gradient, stars, moon, building window glow, and fog that adapts to camera zoom
-- **Food economy** — finite food per building. Civilians must forage at shops/warehouses. Food depletes city-wide. Starvation is a real threat.
-- **Ammo economy** — finite ammo per building. Military starts with 50 rounds, must resupply at police stations or warehouses.
-- **Infection system** — bite resistance (65% chance to shrug it off, take 25 damage instead of turning), instant turning on failed save
-- **Zombie aggro** — visual range 16u (requires line of sight), audio aggro 25u from gunshots (no LOS needed). Zombies are 1.6x faster at night, sprint when close.
-- **Sprint system** — civilians can sprint when a zombie is within 14u, limited duration, cooldown-dependent (longer if hungry)
-- **Horde grouping** — zombies within 5u of each other cluster into hordes; older zombies drift toward horde centers
-- **Military squads** — deploy in waves, squad members stay within 5u, non-leaders follow the leader, squad-wide engagement trigger
-- **5-phase outbreak system** — escalating phases from containment through extinction, each announced with radio messages
+- **Food economy** — finite food per building. Civilians forage at shops/warehouses. Food depletes city-wide. Starvation is a real threat.
+- **Ammo economy** — finite ammo per building. Military uses 50-round magazines and must resupply at police stations or warehouses.
+- **Infection system** — when a zombie bites a civilian there's a 65% chance they resist (takes 25 damage), 35% chance they turn instantly
+- **Zombie aggro** — visual range 16 units (requires line of sight), audio aggro 25 units from gunshots (no LOS needed). Zombies are 1.6× faster at night and sprint when close to prey.
+- **Sprint system** — civilians sprint when a zombie is within 14 units, limited duration with cooldown (longer cooldown if hungry)
+- **Zombie horde clustering** — zombies within 5 units of each other form hordes; older zombies drift toward horde centers
+- **Military squads** — deploy in waves, squad members stay within 5 units of each other, non-leaders follow the leader
+- **5-phase outbreak system** — escalates from containment through extinction, each phase announced with a radio message
 - **5 intro scenarios** — randomised each run (meteor crash, lab leak, infected cargo, ancient spores, space signal)
-- **Radio messages** — periodic HQ broadcasts that escalate in panic as the outbreak worsens
-- **Slow-motion first infection** — time slows to 30% for 3 seconds on first bite, with a screen flash
+- **Periodic radio messages** — HQ broadcasts that become more panicked as the outbreak worsens
+- **Slow-motion on first infection** — time slows to 30% for 3 seconds with a screen flash
 
-### Combat
+### Combat System (entirely autonomous)
 
-| Mech | Detail |
-|------|--------|
-| **Civilian vs Zombie** | Bite range 1.3u. 65% resist chance (take 25 dmg), 35% turn chance. Civilians can survive 4 bites. |
-| **Military vs Zombie** | Range up to 25u. Aim takes 0.01-0.3s. Hit chance = 93% - distance × 1.4 (caps at 30%). Zombies have 30 HP. One hit = one kill. |
-| **Military vs Zombie (miss)** | 55% miss chance at max range. Tracers show hit (solid red) vs miss (dashed red). Misses still alert zombies. |
-| **Line of sight** | Buildings block shots. Military moves closer if LOS is blocked. Zombies need LOS for visual aggro. |
-| **Reload** | 2-second reload when magazine empty. Military carries 50-round mags with large reserve. |
-| **Resupply** | Military returns to ammo buildings when total ammo < 30. Also grabs food from the building. |
-| **Audio aggro** | Gunshots alert all zombies within 25u, aggro lasts 5 seconds, draws them to the shooter's position. |
+| Detail | How It Works |
+|--------|-------------|
+| **Civilian vs Zombie** | Bite at 1.3 units. 65% resistance (takes 25 damage), 35% turn into a zombie. Civilians survive up to 4 bites. |
+| **Military vs Zombie** | Engagement up to 25 units. Aim takes 0.01-0.3 seconds. Accuracy = 93% − distance × 1.4 (min 30%). Zombies have 30 HP — one hit kills. |
+| **Line of sight** | Buildings block shots. Military advances if LOS is blocked. Zombies also need LOS for visual detection. |
+| **Reload & Resupply** | Military reloads (2s) when magazine is empty, returns to warehouses/police stations when total ammo drops below 30. Also collects food during resupply. |
+| **Audio aggro** | Gunshots alert every zombie within 25 units for 5 seconds, regardless of line of sight. |
 
 ### Visuals
-- **UnrealBloomPass** for atmospheric bloom glow
-- **Distinct entity shapes** — cylinders (civilians = blue), cones (zombies = green), boxes (military = red)
-- **Building roof colors** by type with sync'd legend
-- **Occupancy dots** — small blue dots on roofs = people inside
-- **Blood pools** — red circles on ground where entities die, fade over 20s
-- **Corpses** — blood pools from starved civilians and killed zombies (events push `CORPSE:x,z` to renderer)
-- **Military tracers** — solid red line = hit, dashed red line = miss, fade over 2s
-- **Particle effects** — ambient particles with 1,600 particles, spawned at zombie deaths
-- **Night overlay** — semi-transparent dark plane maps over the scene at night
-- **Moon** — visible at night, rises and sets with sky gradient
-- **Ground** — subtle vertex color variation, grid overlay texture
-- **Fog density** adapts to camera distance
+- **UnrealBloomPass** for atmospheric glow
+- **Entity shapes** — cylinders (civilians blue), cones (zombies green), boxes (military red)
+- **Building roof colours** by type with legend
+- **Occupancy dots** — small blue dots on roofs = how many people are inside
+- **Blood pools** — red circles on ground where anyone dies, fade over 20 seconds
+- **Corpses** — blood pools from starved civilians and killed zombies
+- **Military tracers** — solid red line = hit, dashed red line = miss, fade over 2 seconds
+- **Particle effects** — 1,600 ambient particles, bursts on zombie deaths
+- **Night overlay** — semi-transparent dark plane at night
+- **Moon** — visible at night, rises and sets
+- **Sky gradient** — smooth transition from day to dusk to night
+- **Fog** — density adapts to camera distance
 
-### UI: HUD
-- **13 stat boxes** — DAY, TIME, CIVILIANS, ZOMBIES, MILITARY, DEAD, CHAOS, STARVING, STARVED, TURNED, KILLED
+### UI: Observation Dashboard
+- **13 stat boxes** — DAY, TIME, CIVILIANS, ZOMBIES, MILITARY, DEAD (total), CHAOS (% with colour), STARVING (count), STARVED, TURNED, KILLED
 - **Chaos meter** — green (<40%), yellow (40-70%), red (>70%). Calculated from zombie-to-survivor ratio, death toll, and zombie population.
-- **Stat box alerts** — zombie counter pulses red when zombies outnumber survivors
-- **Population chart** — canvas line graph (civilians blue fill, zombies green fill, military red line). Auto-scales to max population.
-- **Event log** — scrollable feed with type-colored entries (zombie/green, death/red, info/white, warning/yellow, military/magenta). Auto-scrolls.
+- **Population chart** — real-time canvas graph (civilians blue fill, zombies green fill, military red line)
+- **Event log** — scrollable feed with type-coloured entries (zombie/green, death/red, info/white, warning/yellow, military/magenta), auto-scrolls
 - **Death breakdown** — separate counters for starved, turned, and killed by military
-- **Speed slider** — 0.5x to 100x simulation speed
+- **Speed slider** — 0.5× to 100× simulation speed
+- **Stat alerts** — zombie counter pulses red when zombies outnumber survivors
 
 ### UI: Notifications & Overlays
 - **Slide-in notifications** — auto-dismiss after 3.5s. Types: zombie (green), death (red), info (blue), military (purple).
-- **Milestones** — popup alerts at key thresholds: first zombie, 50/100/200 zombies, 50/10 civilians remaining, Day 5/10 survival
-- **Danger overlay** — red pulsing border when zombies > survivors (and zombies > 5)
-- **First infection slow-mo** — time slows to 30% for 3 seconds with "⚠ FIRST INFECTION ⚠" flash overlay
-- **Game over screen** — animated overlay with outcome text. Green border for victory, red for loss.
-- **Entity popup** — click any entity to see ID, type, HP, state, kills (military), ammo (military), hunger (civilian)
-- **Legend panel** — visible by default, shows entity colors/shapes, building types, people dots, starving indicator, out-of-ammo indicator
+- **Milestone popups** — trigger at thresholds: first zombie, 50/100/200 zombies, 50/10 civilians remaining, survival to Day 5/10
+- **Danger overlay** — red pulsing border when zombies outnumber survivors (and >5 zombies)
+- **First infection slow-mo** — time slows to 30% for 3 seconds, "⚠ FIRST INFECTION ⚠" overlay
+- **Game over** — overlay with outcome text. Green border = city saved, red = zombies win.
+- **Entity inspection** — click any entity to see its ID, type, HP, current state, kills (military), ammo (military), hunger (civilian)
+- **Legend panel** — visible by default showing entity colours, building roof types, occupancy dots, starving/out-of-ammo indicators
+- **Hint bar** — fades after 8 seconds
 
-### Controls
+### Controls (camera only — you are an observer)
 | Key | Action |
 |-----|--------|
 | `Space` | Pause / Resume |
-| `R` | Reset simulation (generates new map + scenario) |
+| `R` | Reset (generates new map + scenario) |
 | `C` | Cycle camera mode (orbit → top → close) |
 | `L` | Toggle legend |
 | `←` `→` | Pan camera horizontally |
 | `↑` `↓` | Pan camera vertically |
-| `1`-`9` | Set speed multiplier |
-| `0` | Set speed to 10x |
+| `1`–`9` | Set speed multiplier |
+| `0` | Set speed to 10× |
 | Click | Inspect entity |
 | Drag | Orbit camera |
 | Scroll | Zoom |
-
-A hint bar appears at the bottom and auto-fades after 8 seconds.
 
 ## 🚀 Quick Start
 
 ```bash
 npm install
 npm run dev
-# opens at http://localhost:5173
+# opens at http://localhost:5174
 ```
 
 ## 🎯 How It Works
 
 ### Entity Types
-| Type | Shape | Base HP | Speed | Behavior |
-|------|-------|---------|-------|----------|
-| **Civilian** 🟦 | Cylinder (blue) | 100 | 3.5-4.5 | Wanders, seeks food when hungry (hunger <45), sleeps in buildings at night (fatigue >60), starves when hunger <25, flees from zombies, can sprint when threatened |
-| **Zombie** 🟩 | Cone (green) | 30 | 3.5-4.5 (2.5-3.25 if turned) | Hunts nearest human (visual 16u, audio 25u), 1.6x faster at night, sprints when within 5u of target, clusters into hordes, drifts toward horde centers after 5s old |
-| **Military** 🟥 | Box (red) | 100 | 3.5-4.25 | Deploys in squads when threat detected, 50-round mags, resupplies when ammo <30, aims 0.01-0.3s before firing, accuracy drops with distance |
 
-### Entity States (state machine)
+| Type | Shape | HP | Speed | Autonomous Behaviour |
+|------|-------|----|-------|---------------------|
+| **Civilian** 🟦 | Cylinder (blue) | 100 | 3.5–4.5 | Wanders, seeks food when hungry (<45), sleeps in buildings at night (fatigue >60), starves when hunger <25, flees from zombies, sprints when threatened |
+| **Zombie** 🟩 | Cone (green) | 30 | 3.5–4.5 (2.5–3.25 if turned) | Hunts nearest human (visual 16u, audio 25u), 1.6× faster at night, sprints within 5u, clusters into hordes |
+| **Military** 🟥 | Box (red) | 100 | 3.5–4.25 | Deploys in squads when threat detected, 50-round magazines, resupplies when ammo <30, aims before firing |
 
-**Civilians:** `wandering` → `foraging` (when hungry near food) → `starving` (hunger <25) → `seeking_shelter` → `sleeping` (at night, in buildings) / `hiding` (day, from zombies) → `fleeing` (zombie within 8u) → `dead` (hunger ≤ -10 or HP ≤ 0)
+### Entity States
 
-**Zombies:** `hunting` (always) → `attacking` (within 1.3u) → `feeding` (2s after bite) → `hunting` again
+**Civilians:** `wandering` → `foraging` (hungry, near food) → `starving` (hunger <25) → `seeking_shelter` → `sleeping` (night, in buildings) / `hiding` (day, from zombies) → `fleeing` (zombie within 8u) → `dead` (hunger ≤ −10 or HP ≤ 0)
 
-**Military:** `patrolling` (no zombies in 25u) → `engaging` (zombie in range) → `reloading` (mag empty) → `resupplying` (ammo <30) → `hiding` (>2 zombies within 8u AND ammo <5) → `sleeping` (night, fatigue >80)
+**Zombies:** `hunting` → `attacking` (within 1.3u) → `feeding` (2s pause after bite) → `hunting`
 
-### Survivor Mechanics
+**Military:** `patrolling` → `engaging` (zombie in range) → `reloading` (mag empty) → `resupplying` (ammo <30) → `hiding` (>2 zombies within 8u AND ammo <5) → `sleeping` (night, fatigue >80)
 
-| Mechanic | Detail |
-|----------|--------|
-| **Hunger** | Drains at 0.5/s. Hunger <45 → seek food. Hunger <25 → starving state. Hunger ≤ -10 → death. |
-| **Fatigue** | Builds at 0.15/s. Fatigue >60 at night → seek shelter. Sleeping restores at 3.0/s. |
-| **Foraging** | Enters a food building, consumes 8-18 food from it after short timer. Building food is finite and shared. |
-| **Starvation recovery** | Starving civilian reaching a food building immediately consumes 5 food and restores hunger to 80. |
-| **Sprinting** | Triggered when zombie within 14u. Duration = 2-3.5s (halved if hungry). Cooldown = 3-5s (doubled if hungry). Speed = 3.5× normal. |
-| **Panic flee** | Zombie within 8u → flee for 4-6s. Bitten at <1.3u → 65% resist (take 25 dmg) / 35% turn. |
-| **Hiding** | Zombie within 5u → try to enter nearest building. Hide for 3-7s. Come out if zombie leaves 14u range or hunger <25 forces it. |
-
-### Zombie Mechanics
+### Civilian Behaviour
 
 | Mechanic | Detail |
 |----------|--------|
-| **Visual aggro** | 16u range, requires line of sight |
-| **Audio aggro** | 25u range, triggers from gunshots, LOS not required, lasts 5s |
+| **Hunger** | Drains at 0.5/s. Below 45 → seek food. Below 25 → starving. At −10 → death. |
+| **Fatigue** | Builds at 0.15/s. Above 60 at night → seek shelter. Sleeping restores at 3.0/s. |
+| **Foraging** | Enters a food building, consumes 8–18 of its finite food after a short timer. Food depletes city-wide. |
+| **Starvation recovery** | Reaching a food building while starving immediately consumes 5 food and restores hunger to 80. |
+| **Sprinting** | Triggered when zombie within 14u. Duration = 2–3.5s (halved if hungry). Cooldown = 3–5s (doubled if hungry). Speed = 3.5× normal. |
+| **Fleeing** | Zombie within 8u → flee 4–6s. Bitten at <1.3u → 65% resist (take 25 damage) / 35% turn into zombie. |
+| **Hiding** | Zombie within 5u → enter nearest building for 3–7s. Exit when zombie leaves 14u range, or forced out by hunger <25. |
+
+### Zombie Behaviour
+
+| Mechanic | Detail |
+|----------|--------|
+| **Visual detection** | 16u range, requires line of sight |
+| **Audio detection** | 25u range, triggered by gunshots, LOS not required, lasts 5s |
 | **Night speed** | 1.6× multiplier |
-| **Sprint chase** | Within 5u of target → 1.6× speed multiplier |
-| **Horde clustering** | Zombies within 5u of each other (3+) form a horde. Zombies >5s old drift toward nearest horde center. |
-| **Bite mechanic** | 1.3u range, 0.5s cooldown. 65% resist (civilian loses 25 HP), 35% instant turn. Military: one-hit kill. |
-| **Feeding** | 2s pause after a bite before resuming hunt |
-| **Building avoidance** | Cannot enter buildings. Pushes out with sliding physics along the closest wall face. Pre-emptive wall steering. |
-| **Shelter protection** | Cannot bite civilians who are inside buildings (hiding, sleeping, seeking shelter, foraging) |
+| **Sprint chase** | 1.6× speed multiplier within 5u of target |
+| **Horde clustering** | Zombies within 5u of each other (3+) cluster. Zombies older than 5s drift toward nearest horde centre. |
+| **Bite** | 1.3u range, 0.5s cooldown. 65% resist (civilian loses 25 HP), 35% turn. Military: killed instantly. |
+| **Feeding pause** | 2s pause after a bite before resuming hunt |
+| **Building avoidance** | Cannot enter buildings — pushed out along the closest wall face. Pre-emptive wall sliding. |
+| **Shelter protection** | Cannot bite civilians who are inside buildings (hiding, sleeping, foraging) |
 
-### Military Mechanics
+### Military Behaviour
 
 | Mechanic | Detail |
 |----------|--------|
-| **Deployment** | Scales with total threat (zombies + turned). Starts at 3 soldiers, ramps to 14 at threat ≥280, then drops to 12 at ≥360. Capped at zombies×0.5+2. |
-| **Squads** | Soldiers share a squad ID. Non-leaders follow the leader. Squadmates stay within 5u. Whole squad switches to engaging when one fights. |
-| **Combat range** | Optimal 8-14u. Backpedals when zombie <10u, retreats full speed when <6u, advances when >15u. |
-| **Accuracy** | Hit% = 93 - distance×1.4 (min 30%). At 5u = 86%, at 15u = 72%, at 25u = 58%. |
-| **Aim time** | 0.01-0.3s. Slows movement while aiming (velocity × 0.88). |
-| **Reload** | 2s reload when magazine empties. Draws from reserve ammo. |
-| **Resupply** | Returns to nearest warehouse/police station when total ammo <30. Consumes up to 60 ammo from building. Also grabs up to 10 food. |
-| **Hiding** | Hides in nearest building when >2 zombies within 8u AND ammo <5. Restores ammo at 0.5/s from hidden reserves. Exits when ammo >10 OR no zombies within 15u. |
-| **Civilian protection** | Moves toward zombies that are within 5u of civilians in 12u range. |
-| **Line of sight** | Advances for a clear shot if a building blocks LOS. Uses raycasting with 0.5u step sampling. |
-| **Audio aggro** | Every shot alerts ALL zombies within 25u of the shooter for 5s. |
+| **Deployment** | Scales with total threat (zombies + turned). Starts at 3 soldiers, caps at zombies×0.5 + 2. Max 12–14 soldiers. |
+| **Squads** | Same squad ID. Non-leaders follow the leader. Stay within 5u of squadmates. All engage if one fights. |
+| **Combat range** | Optimal 8–14u. Backpedals when zombie <10u, full retreat when <6u, advances when >15u. |
+| **Accuracy** | hit% = 93 − distance × 1.4 (min 30%). At 5u = 86%, at 15u = 72%, at 25u = 58%. |
+| **Aim time** | 0.01–0.3s before firing. Movement slows while aiming. |
+| **Reload** | 2s reload when magazine is empty. Draws from reserve. |
+| **Resupply** | Returns to nearest warehouse/police station when total ammo <30. Consumes up to 60 ammo from building. Also grabs food. |
+| **Hiding** | Hides in nearest building when >2 zombies within 8u AND ammo <5. Regenerates 0.5 ammo/s. Exits when ammo >10 or clear of zombies 15u. |
+| **Civilian protection** | Engages zombies that are within 5u of nearby civilians. |
+| **Line of sight** | Advances to clear a shot if a building blocks the path. Raycast sampling at 0.5u steps. |
+| **Gunshot alert** | Every shot alerts all zombies within 25u for 5 seconds. |
 
 ### Building Types
 
-| Building | Roof Color | Food | Ammo | Function |
+| Building | Roof Colour | Food | Ammo | Function |
 |----------|-----------|------|------|----------|
 | **Shop** | 🟡 Yellow | 30 | 5 | Primary food source |
-| **Warehouse** | ⚫ Dark Gray | 50 | 20 | Ammo + food resupply |
-| **House** | ⚪ White / Brown | 15 | 0 | Shelter (sleeping, hiding) |
-| **Office** | 🔵 Gray | 10 | 0 | Food (low), shelter |
+| **Warehouse** | ⚫ Dark Gray | 50 | 20 | Ammo + food |
+| **House** | ⚪ Brown/White | 15 | 0 | Shelter |
+| **Office** | 🔵 Gray | 10 | 0 | Shelter (low food) |
 | **Apartment** | 🔵 Slate Blue | 10 | 0 | Shelter |
-| **Police** | 🔵 Dark Blue | N/A | 200 | Primary ammo source, limited shelter |
+| **Police Station** | 🔵 Dark Blue | — | 200 | Primary ammo source |
 
-- **Occupancy**: blue dots on roofs show people inside. Baked into building meshes by the renderer.
-- **Window glow**: builds emit warm light from windows at night, visible through bloom.
+Blue dots on roofs = people currently occupying that building.
 
 ### Procedural City
-- 60×60 unit map, 3-unit grid cells
-- 20×20 grid: roads every 4 cells (grid pattern), buildings fill the rest
-- 25% of building cells are parks (with trees + bushes)
-- Contiguous building cells merge into larger buildings
-- 1-5 floors random height
-- Police station replaces a building near map edge
-- Buildings sorted for road adjacency validation
-- Parks have randomly placed trees (2-5 per park) with slight position jitter
+- 60×60 unit grid, 3-unit cells, 20×20 layout
+- Road grid every 4 cells
+- 75% building, 25% park per cell
+- Contiguous building cells merge into larger structures
+- 1–5 floors per building, random height
+- Police station replaces one building near map edge
+- Parks contain 2–5 trees with slight position jitter
 
-### Phases
-| Phase | Zombie % | Label | Message |
-|-------|----------|-------|---------|
-| 0 | <10% | Containment | "Outbreak localized" |
-| 1 | 10-40% | Spread | "Infection crossing containment zones" |
-| 2 | 40-70% | Explosion | "Rapid transmission! City in chaos!" |
-| 3 | 70-90% | Collapse | "Civilization breaking down!" |
-| 4 | >90% | Extinction | "Extinction-level event imminent" |
+### Outbreak Phases
 
-Each phase triggers once per day. Over 90% zombies = permanent panic radio messages.
+| Phase | Zombie % of total | Label |
+|-------|-------------------|-------|
+| 0 | <10% | Containment — outbreak localized |
+| 1 | 10–40% | Spread — crossing containment zones |
+| 2 | 40–70% | Explosion — city in chaos |
+| 3 | 70–90% | Collapse — civilization breaking down |
+| 4 | >90% | Extinction-level event imminent |
 
-### Game Over Conditions
-| Condition | Result |
-|-----------|--------|
-| All civilians dead, zombies still alive | 💀 Zombies win |
-| All civilians dead, zombies also dead | 💀 No survivors |
-| All zombies eliminated, civilians alive, Day >2 | 🎉 City saved |
+### How It Ends
 
-### Endgame Scenarios (radio messages)
-- **Normal**: HQ status reports, evacuation routes, containment orders
-- **Panic** (zombie:survivor ratio >2:1 AND zombies >30): Code Red, air support requests, contamination warnings
-- **Victory** (ratio <0.3:1 AND military present): Infection slowing reports, reduced activity
+| Condition | Outcome |
+|-----------|---------|
+| All civilians dead or turned, zombies still alive | 💀 Zombies win |
+| All civilians dead, zombies also eliminated | 💀 No survivors |
+| All zombies eliminated, at least one civilian alive, after Day 2 | 🎉 City saved |
 
-### Milestones (notifications)
-- First zombie spotted
-- 50 / 100 / 200 zombies
-- 50 / 10 civilians remaining
-- Survival to Day 5 / Day 10
-- City saved (linked with game over)
+### Radio Broadcasts
+- **Normal** — HQ status reports, evacuation routes
+- **Panic** (zombie:survivor ratio >2:1 AND zombies >30) — Code Red, air support requests
+- **Victory** (ratio <0.3:1 AND military present) — infection slowing, reduced activity
 
-### Chaos Calculation
+### Milestone Notifications
+- First zombie spotted, 50/100/200 zombies, 50/10 civilians left
+- Survival to Day 5/10
+- City saved
+
+### Chaos Formula
 ```
-CH = min(100, (zomb / max(1, civ + mil)) × 60 +
-          (dead > 50 ? 20 : dead > 20 ? 10 : 0) +
-          (zomb > 100 ? 20 : zomb > 50 ? 10 : 0))
+CH = min(100,
+  (zombies / max(1, civilians + military)) × 60
+  + (dead > 50 ? 20 : dead > 20 ? 10 : 0)
+  + (zombies > 100 ? 20 : zombies > 50 ? 10 : 0))
 ```
-Displayed as 0% when zombies ≤ 10.
+Flat 0% when zombies ≤ 10.
 
-## 💡 Tips
-- Speed up to **5-20x** during quiet periods — the early game is slow
-- Let it run to **Day 2** for military deployment
-- Click entities to inspect their stats (military ammo, civilian hunger)
-- Press **L** to see the legend
-- Zombies are **1.6x faster at night** — Day 3+ nights get intense
-- Military has **50 rounds** but needs to resupply at police stations and warehouses
-- Starving civilians move **50% slower** — get them to food buildings fast
-- A single shop has **30 food** — enough to feed about 3-4 civilians from starving
-- The police station has **200 ammo** — critical for sustained military operations
-- Zombies can't bite civilians who are inside buildings — shelter is real protection
-- Gunshots alert every zombie within 25u — firing draws the horde
+## 💡 Observing Tips
+- Speed up to **5–20×** during quiet periods
+- Let it run to **Day 2** before military arrives
+- Click any entity to inspect its current state (military ammo, civilian hunger)
+- Press **L** to toggle the legend
+- Zombies are **1.6× faster at night** — nights past Day 3 get intense
+- One shop has **30 food** — enough to feed 3–4 starving civilians
+- The police station holds **200 ammo** — critical for sustained military operations
+- Zombies can't bite civilians who are inside buildings
+- Gunshots alert every zombie within **25 units** — firing draws the horde
+- Watch the first infection in slow-motion replay
+- The chaos meter colour transitions from green → yellow → red as the outbreak escalates
 
 ## 🛠️ Tech Stack
-- **[Three.js](https://threejs.org/)** — 3D rendering (OrbitControls, Raycaster)
+- **[Three.js](https://threejs.org/)** — 3D rendering, OrbitControls, Raycaster
 - **[Vite](https://vitejs.dev/)** — Build tool
 - **[TypeScript](https://www.typescriptlang.org/)** — Type safety
 - **EffectComposer + UnrealBloomPass** — Post-processing bloom
-- **Canvas API** — Population chart rendering
+- **Canvas API** — Population chart
 - **[Vitest](https://vitest.dev/)** — Testing with v8 coverage
+- **[Puppeteer](https://pptr.dev/) / [Playwright](https://playwright.dev/)** — Mobile viewport testing
 
 ## 📁 Structure
 ```
 zombie-sim/
 ├── src/
-│   ├── simulation.ts   # Core AI, combat, food economy, infection, military deployment, phases, radio messages
-│   ├── renderer.ts     # Three.js scene, entity meshes, bloom, blood pools, tracers, particles, day/night cycle
-│   ├── main.ts         # Game loop, HUD, chart, event log, notifications, milestones, controls, entity popup
-│   ├── world.ts        # Procedural city generator (roads, buildings, parks, police station)
-│   └── style.css       # All UI styles (HUD, notifications, legend, game over, danger overlay, popup)
+│   ├── simulation.ts   # AI, combat, food, infection, phases, radio
+│   ├── renderer.ts     # Three.js scene, bloom, blood, tracers, particles, day/night
+│   ├── main.ts         # Game loop, HUD, chart, events, notifications, milestones
+│   ├── world.ts        # Procedural city generator
+│   └── style.css       # All UI styles
 ├── index.html
 ├── package.json
 └── vite.config.ts
@@ -250,9 +246,9 @@ zombie-sim/
 
 ## 🧪 Testing
 ```bash
-npm test                # Run unit tests
-npm run test:coverage   # With coverage report
-npm run test:mobile     # Mobile viewport tests (Playwright)
+npm test                  # Unit tests
+npm run test:coverage     # With coverage report  
+npm run test:mobile       # Mobile viewport tests
 ```
 
 ## 📝 License
