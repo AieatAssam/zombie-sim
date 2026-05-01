@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { chromium } from 'playwright-core';
 
+// Mobile tests need extra time for browser launch and rendering
+const MOBILE_TIMEOUT = 120000;
+
 describe('Mobile Viewport', () => {
   const BASE_OPTS = {
     args: ['--no-sandbox', '--headless=new'],
   };
-  it('should not have legend covering the screen top on iPhone 12 (390x844)', async () => {
+  it('should not have legend covering the screen top on iPhone 12 (390x844)', { timeout: MOBILE_TIMEOUT }, async () => {
     const browser = await chromium.launch(BASE_OPTS);
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -46,7 +49,7 @@ describe('Mobile Viewport', () => {
     await browser.close();
   });
 
-  it('should be usable on tiny viewport (320x568 - iPhone SE)', async () => {
+  it('should be usable on tiny viewport (320x568 - iPhone SE)', { timeout: MOBILE_TIMEOUT }, async () => {
     const browser = await chromium.launch(BASE_OPTS);
     const page = await browser.newPage({ viewport: { width: 320, height: 568 } });
     await page.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -91,7 +94,7 @@ describe('Mobile Viewport', () => {
     await browser.close();
   });
 
-  it('should toggle legend visibility with keyboard on mobile', async () => {
+  it('should toggle legend visibility with keyboard on mobile', { timeout: MOBILE_TIMEOUT }, async () => {
     const browser = await chromium.launch(BASE_OPTS);
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded', timeout: 15000 });
