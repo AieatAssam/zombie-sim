@@ -181,7 +181,7 @@ export class Simulation {
     }
 
     // Patient zero — start with 2 zombies
-    const initialZombies = 2;
+    const initialZombies = 1;
     for (let zi = 0; zi < initialZombies; zi++) {
       let zx = (Math.random() - 0.5) * 20;
       let zz = (Math.random() - 0.5) * 20;
@@ -254,7 +254,7 @@ export class Simulation {
       type: 'military', x, z, vx: 0, vz: 0,
       state: 'patrolling', hp: 100, maxHp: 100,
       hunger: 70 + Math.random() * 30, fatigue: 10,
-      ammo: 150, maxAmmo: 150, magazineSize: 8, ammoInMag: 8, isReloading: false, reloadTimer: 0,
+      ammo: 9999, maxAmmo: 9999, magazineSize: 50, ammoInMag: 50, isReloading: false, reloadTimer: 0,
       attackCooldown: 0,
       targetId: null, wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: 1, sleepTimer: 0, forageTimer: 0,
@@ -553,7 +553,7 @@ export class Simulation {
     // Small initial force arrives early, then scales with threat
     let targetSoldiers = 0;
 
-    if (totalThreat >= 5) targetSoldiers = 4;
+    if (totalThreat >= 1) targetSoldiers = 3;
     if (totalThreat >= 15) targetSoldiers = 2;
     if (totalThreat >= 35) targetSoldiers = 3;
     if (totalThreat >= 60) targetSoldiers = 4;
@@ -561,7 +561,7 @@ export class Simulation {
     if (totalThreat >= 150) targetSoldiers = 8;
     if (totalThreat >= 210) targetSoldiers = 11;
     if (totalThreat >= 280) targetSoldiers = 14;
-    if (totalThreat >= 360) targetSoldiers = 14;
+    if (totalThreat >= 360) targetSoldiers = 12;
 
     // Cap soldiers so zombies always have numerical advantage
     targetSoldiers = Math.min(targetSoldiers, Math.floor(zombieThreat * 0.5 + 2));
@@ -860,31 +860,20 @@ export class Simulation {
         if (z) {
           const d = dist(e, z);
           if (d < 1.3) {
-            // Bitten — 50% chance to resist
-            if (Math.random() < 0.65) {
-              // Resist! Push away from zombie
-              const dx = e.x - z.x;
-              const dz = e.z - z.z;
-              const len = Math.sqrt(dx * dx + dz * dz) || 1;
-              e.vx += (dx / len) * 8;
-              e.vz += (dz / len) * 8;
-              this.logEventThrottled(`Civilian #${e.id} resisted a bite!`, 'info', 3);
-            } else {
-              // Turn into zombie
-              e.type = 'zombie';
+            // Bitten — always turns into a zombie
+            e.type = 'zombie';
               e.hp = 30;
               e.maxHp = 30;
               e.speed = 2.6 + Math.random() * 0.75;
               e.color = '#33ff33';
               e.state = 'hunting';
               e.isAsleep = false;
-              e.attackCooldown = 0;
+              e.attackCooldown = 0.5;
               e.zombieAge = 0;
               e.buildingId = null;
               this.state.stats.totalInfected++;
               this.state.stats.civiliansTurned++;
               this.logEventThrottled(`Civilian #${e.id} was bitten and turned!`, 'zombie', 3);
-            }
           } else {
             // Flee away from zombie with sprint speed when available
             const dx = e.x - z.x;
@@ -1170,7 +1159,7 @@ export class Simulation {
       e.vx *= 0.85;
       e.vz *= 0.85;
       if (e.attackCooldown <= 0) {
-        e.attackCooldown = 3.0;
+        e.attackCooldown = 0.5;
         // Safeguard: don't bite civilians who are inside buildings
         if (target.type === 'civilian' && target.buildingId !== null && (target.state === 'hiding' || target.state === 'sleeping' || target.state === 'seeking_shelter')) {
           // Target is safe inside a building — move away to find another
@@ -1242,18 +1231,7 @@ export class Simulation {
     e.fatigue += 0.1 * dt;
     const s = this.state;
 
-    // Handle reloading
-    if (e.isReloading) {
-      e.reloadTimer -= dt;
-      e.vx *= 0.7;
-      e.vz *= 0.7;
-      if (e.reloadTimer <= 0) {
-        e.isReloading = false;
-        e.ammoInMag = e.magazineSize;
-        e.state = 'engaging';
-      }
-      return;
-    }
+
 
     if (e.hunger <= -20) {
       e.state = 'dead';
@@ -1455,7 +1433,7 @@ export class Simulation {
       return;
     }
 
-    if (nearZombie && dist(e, nearZombie) < 24) {
+    if (nearZombie && dist(e, nearZombie) < 25) {
       e.state = 'engaging';
       const d = dist(e, nearZombie);
 
@@ -1472,11 +1450,11 @@ export class Simulation {
       }
 
       // ─── AIM TIMER + ACCURACY SYSTEM ───
-      if (d < 24 && e.attackCooldown <= 0) {
+      if (d < 25 && e.attackCooldown <= 0) {
         if (e.aimTimer <= 0 && e.ammoInMag > 0) {
           // Start aiming: 0.3-0.8 seconds
-          e.isAiming = true;
-          e.aimTimer = 0.2 + Math.random() * 0.3;
+          // Instant fire, no aim delay
+          e.aimTimer = 0.01;
           e.vx *= 0.9;
           e.vz *= 0.9;
         }
@@ -1490,7 +1468,7 @@ export class Simulation {
           if (e.aimTimer <= 0 && e.ammoInMag > 0) {
             // Fire!
             e.ammoInMag -= 1;
-            e.attackCooldown = 0.4;
+            e.attackCooldown = 0.2;
             e.aimTimer = 0;
             e.isAiming = false;
 
@@ -1546,8 +1524,8 @@ export class Simulation {
         const dx = e.x - nearZombie.x;
         const dz = e.z - nearZombie.z;
         const len = Math.sqrt(dx * dx + dz * dz) || 1;
-        const urgency = (10 - d) / 10; // 0 at 10u, 0.4 at 6u
-        e.vx += (dx / len) * e.speed * urgency * 0.8 * dt;
+        const urgency = (12 - d) / 12; // 0 at 12u, 0.5 at 6u
+        e.vx += (dx / len) * e.speed * urgency * 1.0 * dt;
         e.vz += (dz / len) * e.speed * urgency * 0.6 * dt;
       } else if (d > 15) {
         // Close in to fighting range
