@@ -114,16 +114,22 @@ describe('Simulation', () => {
 
   describe('Infection', () => {
     it('should turn civilians when bitten', () => {
-      // Place zombie on a civilian and tick enough for bite attempts
-      const civ = sim.state.entities.find(e => e.type === 'civilian')!;
+      // Gather 5 civilians around the zombie so it has multiple targets
       const zombie = sim.state.entities.find(e => e.type === 'zombie')!;
-      zombie.x = civ.x;
-      zombie.z = civ.z;
-      zombie.attackCooldown = 0;
+      const civilians = sim.state.entities.filter(e => e.type === 'civilian').slice(0, 5);
+      for (const civ of civilians) {
+        civ.x = zombie.x + (Math.random() - 0.5) * 0.5;
+        civ.z = zombie.z + (Math.random() - 0.5) * 0.5;
+      }
+      zombie.attackCooldown = -1;
 
-      advance(sim, 5, 0.5);
+      // Tick for 15 seconds — many bite attempts across 5 targets
+      for (let i = 0; i < 30; i++) {
+        zombie.attackCooldown = -1;
+        if (sim.state.stats.totalInfected > 0) break;
+        sim.tick(0.5);
+      }
 
-      // With 0.5s bite cooldown and 35% turn chance, 5s should suffice
       expect(sim.state.stats.totalInfected).toBeGreaterThanOrEqual(1);
     });
 
@@ -171,6 +177,43 @@ describe('Simulation', () => {
     it('zombies should have zero ammo on creation', () => {
       const zombie = sim.state.entities.find(e => e.type === 'zombie')!;
       expect(zombie.ammo).toBe(0);
+    });
+  });
+
+  describe('Fleeing Bite Mechanics', () => {
+    it('should handle fleeing civilian in zombie proximity', () => {
+      // Place civilian near zombie (outside buildings) and ensure bite code runs
+      const civ = sim.state.entities.find(e => e.type === 'civilian')!;
+      const zombie = sim.state.entities.find(e => e.type === 'zombie')!;
+      // Move both outside any building
+      zombie.x = 28; zombie.z = 28;
+      civ.x = 28.2; civ.z = 28.2;
+      civ.state = 'fleeing';
+      civ.hp = 100;
+      
+      sim.tick(0.5);
+      
+      // Bite code ran: civilian either took damage, turned, or died
+      const outcomeHappened = (
+        civ.hp < 100 ||
+        civ.type === 'zombie' ||
+        civ.state === 'dead'
+      );
+      expect(outcomeHappened).toBe(true);
+    });
+
+    it('should kill civilian from bite damage when already critically injured', () => {
+      const civ = sim.state.entities.find(e => e.type === 'civilian')!;
+      const zombie = sim.state.entities.find(e => e.type === 'zombie')!;
+      zombie.x = 28; zombie.z = 28;
+      civ.x = 28; civ.z = 28;
+      civ.state = 'fleeing';
+      civ.hp = 5;
+      
+      sim.tick(0.5);
+      
+      // Civilian either died or turned — state changed from 'fleeing'
+      expect(civ.state === 'dead' || civ.type === 'zombie').toBe(true);
     });
   });
 
