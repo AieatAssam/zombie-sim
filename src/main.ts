@@ -423,8 +423,8 @@ btnReset.addEventListener('click', () => {
   sim.reset();
   renderer.reset();
   renderer.buildCity(sim.state);
-  const gameOverDiv = document.getElementById('gameover')!;
-  gameOverDiv.style.display = 'none';
+  const goDiv = document.getElementById('gameover')!;
+  goDiv.style.display = 'none';
   paused = false;
   btnPause.textContent = '⏸ Pause';
   btnPause.classList.remove('active');
@@ -572,10 +572,16 @@ hintDiv.style.cssText = `
   color: rgba(255,255,255,0.3); font-size: 11px; pointer-events: none;
   text-align: center; font-family: monospace;
 `;
-hintDiv.textContent = '🖱 Drag=orbit · Scroll=zoom · Click=inspect · Space=pause · R=reset · L=legend · 1-9=speed · C=camera';
+hintDiv.textContent = '🖱 Drag=orbit · Scroll=zoom · Click=inspect · ←→↑↓=pan · Space=pause · R=reset · L=legend · 1-9=speed · C=camera';
 document.getElementById('ui-overlay')!.appendChild(hintDiv);
+
+// Auto-fade hint after 8 seconds
+setTimeout(() => {
+  hintDiv.style.transition = 'opacity 1s ease';
+  hintDiv.style.opacity = '0';
+}, 8000);
 
 // ─── Start ───
 requestAnimationFrame(gameLoop);
-console.log('🧟 Zombie Outbreak Simulator v3 starting!');
-console.log('  Space=Pause  R=Reset  C=Camera  L=Legend  1-9=Speed  Click=Inspect');
+console.log('🧟 Zombie Outbreak Simulator v7 loaded!');
+console.log('  Space=Pause  R=Reset  C=Camera  L=Legend  Arrows=Pan  1-9=Speed  Click=Inspect');
