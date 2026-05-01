@@ -13,7 +13,7 @@ A city of 400 civilians, a zombie patient zero, and everything spiralling from t
 - **Day/night cycle** with dynamic sky gradient, stars, moon, building window glow, and fog that adapts to camera zoom
 - **Food economy** — finite food per building. Civilians forage at shops/warehouses. Food depletes city-wide. Starvation is a real threat.
 - **Ammo economy** — finite ammo per building. Military uses 50-round magazines and must resupply at police stations or warehouses.
-- **Infection system** — when a zombie bites a civilian there's a 65% chance they resist (takes 25 damage), 35% chance they turn instantly
+- **Infection system** — when a zombie bites a civilian there's a 90.5% chance they resist (takes 25 damage), 9.5% chance they turn instantly. The same resist check applies when a fleeing civilian runs into a zombie (bugfix: was 0% resist).
 - **Zombie aggro** — visual range 16 units (requires line of sight), audio aggro 25 units from gunshots (no LOS needed). Zombies are 1.6× faster at night and sprint when close to prey.
 - **Sprint system** — civilians sprint when a zombie is within 14 units, limited duration with cooldown (longer cooldown if hungry)
 - **Zombie horde clustering** — zombies within 5 units of each other form hordes; older zombies drift toward horde centers
@@ -27,8 +27,8 @@ A city of 400 civilians, a zombie patient zero, and everything spiralling from t
 
 | Detail | How It Works |
 |--------|-------------|
-| **Civilian vs Zombie** | Bite at 1.3 units. 65% resistance (takes 25 damage), 35% turn into a zombie. Civilians survive up to 4 bites. |
-| **Military vs Zombie** | Engagement up to 25 units. Aim takes 0.01-0.3 seconds. Accuracy = 93% − distance × 1.4 (min 30%). Zombies have 30 HP — one hit kills. |
+| **Civilian vs Zombie** | Bite at 1.3 units. 90.5% resistance (takes 25 damage), 9.5% turn into a zombie. Civilians survive up to 4 bites. Both zombie-attack and civilian-fleeing bites use the same resist check. |
+| **Military vs Zombie** | Engagement up to 25 units. Aim takes 0.01-0.3 seconds. Accuracy = 90% − distance × 1.0 (min 35%). Zombies have 30 HP — one hit kills. |
 | **Line of sight** | Buildings block shots. Military advances if LOS is blocked. Zombies also need LOS for visual detection. |
 | **Reload & Resupply** | Military reloads (2s) when magazine is empty, returns to warehouses/police stations when total ammo drops below 30. Also collects food during resupply. |
 | **Audio aggro** | Gunshots alert every zombie within 25 units for 5 seconds, regardless of line of sight. |
@@ -97,13 +97,13 @@ npm run dev
 |------|-------|----|-------|---------------------|
 | **Civilian** 🟦 | Cylinder (blue) | 100 | 3.5–4.5 | Wanders, seeks food when hungry (<45), sleeps in buildings at night (fatigue >60), starves when hunger <25, flees from zombies, sprints when threatened |
 | **Zombie** 🟩 | Cone (green) | 30 | 3.5–4.5 (2.5–3.25 if turned) | Hunts nearest human (visual 16u, audio 25u), 1.6× faster at night, sprints within 5u, clusters into hordes |
-| **Military** 🟥 | Box (red) | 100 | 3.5–4.25 | Deploys in squads when threat detected, 50-round magazines, resupplies when ammo <30, aims before firing |
+| **Military** 🟥 | Box (red) | 100 | 3.5–4.25 | Deploys in squads when threat detected, 100-round magazines, resupplies when total ammo <30, aims before firing |
 
 ### Entity States
 
 **Civilians:** `wandering` → `foraging` (hungry, near food) → `starving` (hunger <25) → `seeking_shelter` → `sleeping` (night, in buildings) / `hiding` (day, from zombies) → `fleeing` (zombie within 8u) → `dead` (hunger ≤ −10 or HP ≤ 0)
 
-**Zombies:** `hunting` → `attacking` (within 1.3u) → `feeding` (2s pause after bite) → `hunting`
+**Zombies:** `hunting` → `attacking` (within 1.3u, 1.2s cooldown) → `feeding` (2s pause after bite) → `hunting`
 
 **Military:** `patrolling` → `engaging` (zombie in range) → `reloading` (mag empty) → `resupplying` (ammo <30) → `hiding` (>2 zombies within 8u AND ammo <5) → `sleeping` (night, fatigue >80)
 
@@ -116,7 +116,7 @@ npm run dev
 | **Foraging** | Enters a food building, consumes 8–18 of its finite food after a short timer. Food depletes city-wide. |
 | **Starvation recovery** | Reaching a food building while starving immediately consumes 5 food and restores hunger to 80. |
 | **Sprinting** | Triggered when zombie within 14u. Duration = 2–3.5s (halved if hungry). Cooldown = 3–5s (doubled if hungry). Speed = 3.5× normal. |
-| **Fleeing** | Zombie within 8u → flee 4–6s. Bitten at <1.3u → 65% resist (take 25 damage) / 35% turn into zombie. |
+| **Fleeing** | Zombie within 8u → flee 4–6s. Bitten at <1.3u → 90.5% resist (take 25 damage) / 9.5% turn. Same resist check as zombie attacks. |
 | **Hiding** | Zombie within 5u → enter nearest building for 3–7s. Exit when zombie leaves 14u range, or forced out by hunger <25. |
 
 ### Zombie Behaviour
@@ -128,7 +128,7 @@ npm run dev
 | **Night speed** | 1.6× multiplier |
 | **Sprint chase** | 1.6× speed multiplier within 5u of target |
 | **Horde clustering** | Zombies within 5u of each other (3+) cluster. Zombies older than 5s drift toward nearest horde centre. |
-| **Bite** | 1.3u range, 0.5s cooldown. 65% resist (civilian loses 25 HP), 35% turn. Military: killed instantly. |
+| **Bite** | 1.3u range, 1.2s cooldown. 90.5% resist (civilian loses 25 HP), 9.5% turn. Military: killed instantly. |
 | **Feeding pause** | 2s pause after a bite before resuming hunt |
 | **Building avoidance** | Cannot enter buildings — pushed out along the closest wall face. Pre-emptive wall sliding. |
 | **Shelter protection** | Cannot bite civilians who are inside buildings (hiding, sleeping, foraging) |
@@ -137,12 +137,12 @@ npm run dev
 
 | Mechanic | Detail |
 |----------|--------|
-| **Deployment** | Scales with total threat (zombies + turned). Starts at 3 soldiers, caps at zombies×0.5 + 2. Max 12–14 soldiers. |
+| **Deployment** | Scales with total threat (zombies + turned). Starts at 4 soldiers, caps at zombies×0.7 + 4. Max 50 soldiers. |
 | **Squads** | Same squad ID. Non-leaders follow the leader. Stay within 5u of squadmates. All engage if one fights. |
 | **Combat range** | Optimal 8–14u. Backpedals when zombie <10u, full retreat when <6u, advances when >15u. |
-| **Accuracy** | hit% = 93 − distance × 1.4 (min 30%). At 5u = 86%, at 15u = 72%, at 25u = 58%. |
+| **Accuracy** | hit% = 90 − distance × 1.0 (min 35%). At 5u = 85%, at 15u = 75%, at 25u = 65%. |
 | **Aim time** | 0.01–0.3s before firing. Movement slows while aiming. |
-| **Reload** | 2s reload when magazine is empty. Draws from reserve. |
+| **Reload** | 2s reload when magazine is empty. Draws from 100-round reserve. |
 | **Resupply** | Returns to nearest warehouse/police station when total ammo <30. Consumes up to 60 ammo from building. Also grabs food. |
 | **Hiding** | Hides in nearest building when >2 zombies within 8u AND ammo <5. Regenerates 0.5 ammo/s. Exits when ammo >10 or clear of zombies 15u. |
 | **Civilian protection** | Engages zombies that are within 5u of nearby civilians. |
@@ -216,6 +216,7 @@ Flat 0% when zombies ≤ 10.
 - Zombies are **1.6× faster at night** — nights past Day 3 get intense
 - One shop has **30 food** — enough to feed 3–4 starving civilians
 - The police station holds **200 ammo** — critical for sustained military operations
+- Balance tuned to ~50/50 win/loss over 100+ trials with resist 90.5%, 1.2s bite cooldown, 100-round magazines, and progressive military deployment
 - Zombies can't bite civilians who are inside buildings
 - Gunshots alert every zombie within **25 units** — firing draws the horde
 - Watch the first infection in slow-motion replay

@@ -83,7 +83,7 @@ describe('Simulation', () => {
       const mil = sim.state.entities.filter(e => e.type === 'military');
       if (mil.length > 0) {
         const soldier = mil[0];
-        expect(soldier.magazineSize).toBe(50);
+        expect(soldier.magazineSize).toBe(100);
         expect(soldier.color).toBe('#ff3333');
         expect(soldier.hp).toBeGreaterThanOrEqual(30);
         expect(soldier.ammoInMag).toBeGreaterThanOrEqual(0);

@@ -254,7 +254,7 @@ export class Simulation {
       type: 'military', x, z, vx: 0, vz: 0,
       state: 'patrolling', hp: 100, maxHp: 100,
       hunger: 70 + Math.random() * 30, fatigue: 10,
-      ammo: 9999, maxAmmo: 9999, magazineSize: 50, ammoInMag: 50, isReloading: false, reloadTimer: 0,
+      ammo: 9999, maxAmmo: 9999, magazineSize: 100, ammoInMag: 100, isReloading: false, reloadTimer: 0,
       attackCooldown: 0,
       targetId: null, wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: 1, sleepTimer: 0, forageTimer: 0,
@@ -553,18 +553,19 @@ export class Simulation {
     // Small initial force arrives early, then scales with threat
     let targetSoldiers = 0;
 
-    if (totalThreat >= 1) targetSoldiers = 3;
-    if (totalThreat >= 15) targetSoldiers = 2;
-    if (totalThreat >= 35) targetSoldiers = 3;
-    if (totalThreat >= 60) targetSoldiers = 4;
-    if (totalThreat >= 100) targetSoldiers = 6;
-    if (totalThreat >= 150) targetSoldiers = 8;
-    if (totalThreat >= 210) targetSoldiers = 11;
-    if (totalThreat >= 280) targetSoldiers = 14;
-    if (totalThreat >= 360) targetSoldiers = 12;
+    if (totalThreat >= 1) targetSoldiers = 4;
+    if (totalThreat >= 8) targetSoldiers = 6;
+    if (totalThreat >= 20) targetSoldiers = 8;
+    if (totalThreat >= 40) targetSoldiers = 12;
+    if (totalThreat >= 70) targetSoldiers = 16;
+    if (totalThreat >= 100) targetSoldiers = 22;
+    if (totalThreat >= 140) targetSoldiers = 28;
+    if (totalThreat >= 190) targetSoldiers = 35;
+    if (totalThreat >= 260) targetSoldiers = 42;
+    if (totalThreat >= 340) targetSoldiers = 50;
 
-    // Cap soldiers so zombies always have numerical advantage
-    targetSoldiers = Math.min(targetSoldiers, Math.floor(zombieThreat * 0.5 + 2));
+    // Cap soldiers relative to zombie count
+    targetSoldiers = Math.min(targetSoldiers, Math.floor(zombieThreat * 0.7 + 4));
 
     // Deploy in waves - don't spawn all at once
     const currentMil = s.stats.military;
@@ -860,20 +861,31 @@ export class Simulation {
         if (z) {
           const d = dist(e, z);
           if (d < 1.3) {
-            // Bitten — always turns into a zombie
-            e.type = 'zombie';
+            // Bitten — resist or turn
+            if (Math.random() < 0.905) {
+              // Resist! Take damage instead
+              e.hp -= 25;
+              if (e.hp <= 0) {
+                e.state = 'dead';
+                this.state.stats.civiliansStarved++;
+                return;
+              }
+            } else {
+              e.type = 'zombie';
               e.hp = 30;
               e.maxHp = 30;
               e.speed = 2.6 + Math.random() * 0.75;
               e.color = '#33ff33';
               e.state = 'hunting';
               e.isAsleep = false;
-              e.attackCooldown = 0.5;
+              e.attackCooldown = 1.2;
               e.zombieAge = 0;
               e.buildingId = null;
               this.state.stats.totalInfected++;
               this.state.stats.civiliansTurned++;
               this.logEventThrottled(`Civilian #${e.id} was bitten and turned!`, 'zombie', 3);
+              return;
+            }
           } else {
             // Flee away from zombie with sprint speed when available
             const dx = e.x - z.x;
@@ -1159,7 +1171,7 @@ export class Simulation {
       e.vx *= 0.85;
       e.vz *= 0.85;
       if (e.attackCooldown <= 0) {
-        e.attackCooldown = 0.5;
+        e.attackCooldown = 1.2;
         // Safeguard: don't bite civilians who are inside buildings
         if (target.type === 'civilian' && target.buildingId !== null && (target.state === 'hiding' || target.state === 'sleeping' || target.state === 'seeking_shelter')) {
           // Target is safe inside a building — move away to find another
@@ -1172,8 +1184,8 @@ export class Simulation {
           return;
         }
         if (target.type === 'civilian') {
-          // 50% chance to resist infection (take damage instead)
-          if (Math.random() < 0.65) {
+          // Chance to resist infection (take damage instead)
+          if (Math.random() < 0.905) {
             // Resist! Civilian takes damage but doesn't turn
             target.hp -= 25; // Less damage, 100 HP means 4 bites to kill
             if (target.hp <= 0) {
@@ -1472,9 +1484,9 @@ export class Simulation {
             e.aimTimer = 0;
             e.isAiming = false;
 
-            // Accuracy: hit chance = 95 - (distance * 2)
-            // At distance 5 = 85%, at distance 15 = 65%, at distance 25 = 45%
-            const hitChance = Math.max(30, Math.floor(93 - d * 1.4));
+            // Accuracy: hit chance = 90 - (distance * 1.0), min 35%
+            // At distance 5 = 85%, at distance 15 = 75%, at distance 25 = 65%
+            const hitChance = Math.max(35, Math.floor(90 - d * 1.0));
             const hit = Math.random() * 100 < hitChance;
             const hitStr = hit ? 'HIT' : 'MISS';
 
