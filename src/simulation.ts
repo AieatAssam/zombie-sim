@@ -227,7 +227,7 @@ export class Simulation {
       wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: Math.random() * 3, sleepTimer: 0, forageTimer: 0,
       buildingId: null, lastUpdateTime: 0,
-      speed: 3.2 + Math.random() * 1.0,
+      speed: 2.0 + Math.random() * 1.0,
       color: '#33ff33', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
       zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
@@ -312,11 +312,11 @@ export class Simulation {
         if (e.turnTimer <= 0) {
           // Turn into zombie!
           e.type = 'zombie';
-          e.speed = 3.5 + Math.random() * 0.8;
+          e.speed = 2.0 + Math.random() * 1.0;
           e.color = '#33ff33';
           e.state = 'hunting';
           e.isAsleep = false;
-          e.attackCooldown = 15.0;
+          e.attackCooldown = 0.5;
           e.zombieAge = 0;
           e.buildingId = null;
           e.turnTimer = 0;
@@ -517,7 +517,7 @@ export class Simulation {
       if (zomb >= 400) targetSoldiers = 250;
     }
     // Keep military strong enough to fight back
-    targetSoldiers = Math.max(targetSoldiers, Math.floor(zomb * 1.2));
+    targetSoldiers = Math.max(targetSoldiers, Math.floor(zomb * 0.95 + 10));
 
     if (currentMil < targetSoldiers && this.deploymentTimer <= 0) {
       const toDeploy = Math.min(5, targetSoldiers - currentMil);
@@ -688,11 +688,11 @@ export class Simulation {
               this.logEventThrottled(`Civilian #${e.id} shoved a zombie back!`, 'zombie', 5);
               break;
             }
-            // Bitten! Start turn timer instead of instant conversion
-            e.turnTimer = 2 + Math.random() * 2;
+            // Bitten! Start turn timer (longer for military intervention)
+            e.turnTimer = 6 + Math.random() * 4;
             e.state = 'fleeing';
             e.isPanicking = true;
-            e.panicTimer = e.turnTimer + 1;
+            e.panicTimer = e.turnTimer + 2;
             this.logEventThrottled(`Civilian #${e.id} was bitten and is turning!`, 'zombie', 2);
             // Alert nearby zombies
             this.alertNearbyZombies(z, e, 12);
@@ -799,7 +799,7 @@ export class Simulation {
     }
 
     const nightMul = isNight ? 1.6 : 1.0;
-    const VISUAL = 12, AUDIO = 20;
+    const VISUAL = 10, AUDIO = 18;
 
     // Throttled target search: full scan every 4 ticks, reuse cache otherwise
     let best: Entity | null = null;
@@ -883,7 +883,7 @@ export class Simulation {
               oc.panicTimer = 6 + Math.random() * 4;
               if (Math.random() < 0.3) {
                 // Bitten during breach
-                oc.turnTimer = 2 + Math.random() * 2;
+                oc.turnTimer = 6 + Math.random() * 4;
                 this.state.stats.totalInfected++;
                 this.state.stats.civiliansTurned++;
               }
@@ -900,7 +900,7 @@ export class Simulation {
     if (d < 1.3) {
       e.state = 'attacking'; e.vx *= 0.85; e.vz *= 0.85;
       if (e.attackCooldown <= 0) {
-        e.attackCooldown = 15.0;
+        e.attackCooldown = 0.5;
         if (best.type === 'civilian' && best.buildingId !== null && (best.state === 'hiding' || best.state === 'sleeping' || best.state === 'seeking_shelter')) {
           e.state = 'hunting'; e.targetId = null;
           const d2 = dist(e, best) || 1; e.wanderAngle = Math.atan2(e.z - best.z, e.x - best.x); e.wanderTimer = 1.5; return;
@@ -909,10 +909,10 @@ export class Simulation {
           // Already turning — don't re-bite
           if (best.turnTimer > 0) { e.state = 'hunting'; e.targetId = null; e.wanderAngle = Math.atan2(e.z - best.z, e.x - best.x); e.wanderTimer = 1.5; return; }
           // Bitten — start turn timer
-          best.turnTimer = 2 + Math.random() * 2;
+          best.turnTimer = 6 + Math.random() * 4;
           best.state = 'fleeing';
           best.isPanicking = true;
-          best.panicTimer = best.turnTimer + 1;
+          best.panicTimer = best.turnTimer + 2;
           e.biteAttempts++;
           e.state = 'feeding';
           e.feedingTimer = 0.5;
@@ -926,7 +926,7 @@ export class Simulation {
     } else {
       const len = dist(e, best) || 1;
       const a = Math.atan2(best.z - e.z, best.x - e.x) + (Math.random() - 0.5) * 0.4;
-      const spd = e.speed * 2.0 * nightMul * (len < 5 ? 1.5 : 1.0);
+      const spd = e.speed * 1.5 * nightMul * (len < 5 ? 1.3 : 1.0);
       e.vx += Math.cos(a) * spd * dt * 0.4;
       e.vz += Math.sin(a) * spd * dt * 0.4;
       e.state = 'hunting';

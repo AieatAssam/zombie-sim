@@ -82,8 +82,8 @@ describe('Simulation v4', () => {
       zombie.attackCooldown = -1;
       zombie.alertTimer = 5; // Ensure zombie can detect target
       
-      // Tick past bite + turn timer (3-5s)
-      for (let i = 0; i < 30; i++) {
+      // Tick past bite + turn timer (now 6-10s)
+      for (let i = 0; i < 50; i++) {
         sim.tick(0.5);
         if (sim.state.stats.totalInfected > 0) break;
       }
