@@ -694,9 +694,23 @@ export class Simulation {
           } else {
             const len = dist(e, z) || 1;
             // Flee away from zombie, but towards military and allies
+            // Flee away from zombie, but towards group and military
             let fleeAngle = Math.atan2(e.z - z.z, e.x - z.x);
+            
+            // Strong herding: find closest group of allies
             const ally = this.findNearest(e, 15, 'civilian');
-            if (ally && dist(e, ally) > 3) fleeAngle = fleeAngle * 0.6 + Math.atan2(ally.z - e.z, ally.x - e.x) * 0.4;
+            if (ally && dist(e, ally) > 2) {
+              // Blend 50/50: flee away from zombie + run toward allies
+              fleeAngle = fleeAngle * 0.5 + Math.atan2(ally.z - e.z, ally.x - e.x) * 0.5;
+              // Additional cohesion: look for a 3rd civilian to form a cluster
+              const ally2 = this.findNearest(ally, 12, 'civilian');
+              if (ally2 && ally2.id !== e.id && dist(e, ally2) > 3) {
+                const midX = (ally.x + ally2.x) / 2;
+                const midZ = (ally.z + ally2.z) / 2;
+                fleeAngle = fleeAngle * 0.8 + Math.atan2(midZ - e.z, midX - e.x) * 0.2;
+              }
+            }
+            
             const mil = this.findNearest(e, 25, 'military');
             if (mil && dist(e, mil) < 20) fleeAngle = fleeAngle * 0.8 + Math.atan2(mil.z - e.z, mil.x - e.x) * 0.2;
             const jitter = (Math.random() - 0.5) * 1.2;
@@ -741,6 +755,17 @@ export class Simulation {
       case 'wandering':
       default: {
         e.wanderTimer -= dt;
+        
+        // Gentle group cohesion: wander toward nearby allies when idling
+        if (e.wanderTimer < 2 && Math.random() < 0.02) {
+          const nearby = this.findNearest(e, 10, 'civilian');
+          if (nearby && dist(e, nearby) > 4) {
+            const d = dist(e, nearby) || 1;
+            e.vx += ((nearby.x - e.x) / d) * e.speed * 0.05 * dt;
+            e.vz += ((nearby.z - e.z) / d) * e.speed * 0.05 * dt;
+          }
+        }
+        
         if (e.hunger < 45 && e.forageCooldown <= 0) {
           const fb = this.findNearestFoodBuilding(e.x, e.z);
           if (fb && fb.food > 0) {
@@ -827,7 +852,13 @@ export class Simulation {
     }
     
     // Cache the target
-    if (best) e.targetId = best.id;
+    if (best) {
+      e.targetId = best.id;
+      // Save last known position for search persistence when LOS is lost
+      e.alertX = best.x;
+      e.alertZ = best.z;
+      if (e.alertTimer <= 0 || !this.hasClearShot(e, best)) e.alertTimer = 2;
+    }
 
     if (e.alertTimer > 0 && !best) {
       const d = Math.sqrt((e.alertX - e.x) ** 2 + (e.alertZ - e.z) ** 2);
@@ -937,7 +968,24 @@ export class Simulation {
   private alertNearbyZombies(src: Entity, target: Entity, range: number): void {
     for (const z of this.state.entities) {
       if (z.id === src.id || z.type !== 'zombie' || z.state === 'dead') continue;
-      if (dist(z, src) < range) { z.alertTimer = 4; z.alertX = target.x; z.alertZ = target.z; }
+      if (dist(z, src) < range) {
+        z.alertTimer = 4; z.alertX = target.x; z.alertZ = target.z;
+        // Alert cascade: 8% chance the alerted zombie screams too (with smaller range)
+        // This creates visible chain-reaction alert rings across the city
+        if (Math.random() < 0.08) {
+          const cascadeRange = range * 0.6;
+          for (const z2 of this.state.entities) {
+            if (z2.id === z.id || z2.type !== 'zombie' || z2.state === 'dead') continue;
+            if (dist(z2, z) < cascadeRange) { z2.alertTimer = 4; z2.alertX = target.x; z2.alertZ = target.z; }
+          }
+          this.state.events.push({
+            time: this.state.totalTime,
+            day: this.state.day,
+            text: `ALERT_RING:${z.x},${z.z},${cascadeRange}`,
+            type: 'warning',
+          });
+        }
+      }
     }
     // Emit visual ALERT_RING event for renderer
     this.state.events.push({

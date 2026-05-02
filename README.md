@@ -128,7 +128,7 @@ npm run dev
 | **Foraging** | Enters a food building, consumes 8–18 of its finite food after a short timer. **Forage cooldown**: 15–25s after eating before can re-enter a food store. Moves away from food building after eating. |
 | **Starvation recovery** | Reaching a food building while starving immediately consumes 5 food and restores hunger to 80. |
 | **Sprinting** | Triggered when zombie within 14u. Duration = 2–4s. Speed = 3.0× normal. |
-| **Fleeing** | Zombie within 10u → flee 5–8s. Bitten at <1.3u → 6–10s turn timer. Flees toward other civilians (40%) and nearby military (20%). Cornered civilians shove zombies back. |
+| **Fleeing (herding)** | Zombie within 10u → flee 5–8s. **Strong herding**: flee direction blends 50% away from zombie + 50% toward nearest ally. Also seeks midpoint of ally pairs (cluster cohesion). Wandering civilians have gentle attraction to nearby allies. Bitten at <1.3u → 6–10s turn timer. Cornered civilians shove zombies back. |
 | **Hiding** | Zombie within 5u → enter nearest building for 3–7s. Exit when zombie leaves 14u range, or forced out by hunger. |
 | **Turning** | Green mist particles drift around feet (rate doubles at <30% timer). Body colour interpolates blue→green. ☠ skull sprite flashes above head, speeding up and shifting red→purple as conversion nears. |
 
@@ -144,6 +144,8 @@ npm run dev
 | **Bite cooldown** | **None** — zombies bite immediately on contact. Attack cooldown = 0.5s (effectively instant at simulation tick rate). |
 | **Zombie call-out** | When a zombie bites someone, all zombies within 15 units are alerted (shown as expanding green ring) |
 | **Building avoidance** | Cannot enter buildings — pushed out along the closest wall face. Pre-emptive wall sliding. |
+| **Search persistence** | Zombies save last known target position and search there for 2s after losing LOS instead of immediately wandering. |
+| **Alert cascade** | 8% chance an alerted zombie screams too, propagating the alert to nearby zombies with a smaller radius. Creates visible chain-reaction alert rings. |
 | **Shelter protection** | Cannot bite civilians who are inside buildings (hiding, sleeping, foraging) |
 
 ### Military Behaviour
