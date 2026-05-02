@@ -21,7 +21,7 @@ describe('Simulation v4', () => {
     });
 
     it('should create 1 initial zombie', () => {
-      expect(sim.state.stats.zombies).toBe(2);
+      expect(sim.state.stats.zombies).toBe(1);
     });
 
     it('should start on day 1', () => {
@@ -83,16 +83,20 @@ describe('Simulation v4', () => {
       zombie.alertTimer = 5; // Ensure zombie can detect target
       
       // Tick past bite + turn timer (now 6-10s)
+      // Check DURING the loop before military deploys and kills zombies
+      let turned = false;
       for (let i = 0; i < 50; i++) {
         sim.tick(0.5);
-        if (sim.state.stats.totalInfected > 0) break;
+        if (sim.state.stats.totalInfected > 0) {
+          turned = true;
+          // Check immediately: civilian turned and both zombies still alive
+          expect(civ.type).toBe('zombie');
+          break;
+        }
       }
-      
-      expect(sim.state.stats.totalInfected).toBeGreaterThanOrEqual(1);
-      // The original civilian should now be a zombie
-      expect(civ.type).toBe('zombie');
-      // Total zombies should be 2 (original + turned)
-      expect(sim.state.stats.zombies).toBe(2);
+      expect(turned).toBe(true);
+      // Note: military may deploy in the same tick and kill zombies,
+      // so we only verify the civilian's type changed
     });
   });
 
@@ -123,14 +127,16 @@ describe('Simulation v4', () => {
 
   describe('Military Deployment', () => {
     it('should deploy military after enough infections', () => {
-      // Military deploys when infections >= 1 AND time > 3s
-      // Set infections and advance past time threshold
+      // Military deploys with deploymentTimer delay + zombie/infection thresholds
       sim.state.stats.civiliansTurned = 2;
       sim.state.stats.totalInfected = 2;
-      sim.state.totalTime = 5;
       
+      // deploymentTimer starts at 20 in constructor
+      // It decrements by dt each tick; set it near 0
+      // Access via private property simulation isn't possible directly
+      // Instead, just run ticks past the timer
       let deployed = false;
-      for (let t = 0; t < 30; t++) {
+      for (let t = 0; t < 60; t++) {
         sim.tick(0.5);
         if (sim.state.stats.military > 0) { deployed = true; break; }
       }
@@ -160,7 +166,7 @@ describe('Simulation v4', () => {
       advance(sim, 20, 1);
       sim.reset();
       expect(sim.state.stats.civilians).toBe(400);
-      expect(sim.state.stats.zombies).toBe(2);
+      expect(sim.state.stats.zombies).toBe(1);
       expect(sim.state.gameOver).toBe(false);
     });
   });

@@ -32,7 +32,7 @@ A city of 400 civilians, a zombie patient zero, and everything spiralling from t
 | Detail | How It Works |
 |--------|-------------|
 | **Civilian vs Zombie** | Bite at 1.3 units. No cooldown — zombies bite immediately on contact. 100% infection — no resist, no HP. Bitten civilian gets a 6–10 second turn timer and flees in panic toward military/other civilians, then turns into a zombie. |
-| **Military vs Zombie** | Engagement up to 25 units. Aim takes 0.4–0.7 seconds. Accuracy = 92% − distance × 1.0 (min 35%). Fire rate: 0.4s per shot. One hit = one kill (no HP). |
+| **Military vs Zombie** | Engagement up to 20 units. Aim takes 0.3–0.5s. Accuracy = 72% − distance × 1.8 (min 5%). Fire rate: 1.0s. One hit = one kill. Move penalty: -10%. |
 | **Turn timer** | Bitten civilians take 6–10 seconds to turn. During this window they emit green mist particles, change colour blue→green, and can be killed by military as civilians. |
 | **Zombie call-out** | When a zombie bites someone, nearby zombies (within 15 units) are alerted, shown as an expanding green ring. |
 | **Line of sight** | Buildings block shots and visual detection. Military advances if LOS is blocked. Zombies also need LOS for visual aggro. |
@@ -106,7 +106,7 @@ npm run dev
 |------|-------|-------|---------------------|
 | **Civilian** 🟦 | Cylinder (blue) | 3.2–4.0 | Wanders, seeks food when hungry (<45, with 15-25s forage cooldown), sleeps in buildings at night (fatigue >60), starves when hunger <25, flees from zombies (panic at 10u), sprints when threatened. Bitten → 6–10s turn timer with green mist/colour shift/skull icon, then becomes zombie. Flees toward military when panicking. |
 | **Zombie** 🟩 | Cone (green) | 2.0–3.0 | Hunts nearest human (visual 10u, audio 18u), no bite cooldown (bites immediately on contact), 1.5× chase multiplier, 1.3× sprint within 5u, clusters into hordes (2+), alerts nearby zombies when biting (green ring pulse). One shot = one kill by military. |
-| **Military** 🟥 | Box (red) | 3.8–4.3 | Deploys immediately (zomb×0.95+10 scaling, 5/wave, 0.3s cooldown). 1 initial soldier near centre. Fire rate 0.4s, accuracy 92%-dist×1.0 (min 35%). Aim time 0.4-0.7s. Maintains 15-22u engagement range. Never sleeps or hides — patrols and fights continuously. Patrols toward largest zombie horde. |
+| **Military** 🟥 | Box (red) | 3.8–4.3 | Deploys in waves (zomb×0.35+3 scaling, 1/wave, 4-6s wave gap). 8s initial delay. Holds ground + fires at range (doesn't chase). Overwhelmed by 3+ zombies within 3u. Never sleeps or hides. Patrols toward hordes. |
 
 ### Entity States
 
@@ -147,15 +147,15 @@ npm run dev
 
 | Mechanic | Detail |
 |----------|--------|
-| **Deployment** | Immediate — based on zombie count. Scales at zombies×0.95 + 10. 5 soldiers per wave, 0.3s wave cooldown. 1 initial soldier near city centre. Spawn radii vary (10-28 units from centre). |
+| **Deployment** | 8s initial delay, then waves of 1 soldier every 4-6s. Scales at zombies×0.35 + 3. Spawns at map edge (24-28u radius). No initial soldier. |
 | **Squads** | Same squad ID. Non-leaders follow the leader. Stay within 6u of squadmates. All engage if one fights. |
-| **Combat range** | Optimal 15–22u. Panic retreat at <8u (1.2× speed). Backpedals at 8–15u (urgency-scaled). Slow advance at >22u. Never approaches into danger zone. |
-| **Fire rate** | 0.4s per shot. Aim time 0.4-0.7s before firing (slows during aim). |
-| **Accuracy** | hit% = 92 − distance × 1.0 (min 35%). At 5u = 87%, at 15u = 77%, at 25u = 67%. |
+| **Combat range** | Holds ground at all ranges. Emergency retreat only at <3u (0.6× speed). Fires at d ≥ 3. No advance/approach behavior. |
+| **Fire rate** | 1.0s per shot. Aim time 0.3-0.5s before firing (slows during aim, -10% accuracy if moving). |
+| **Accuracy** | hit% = 72 − distance × 1.8 (min 5%). At 5u = 63%, at 15u = 45%, at 25u = 27%. |
 | **Reload** | 2s reload when magazine is empty. Draws from 100-round magazine. |
 | **Resupply** | Returns to nearest warehouse/police station when total ammo <30. Consumes up to 60 ammo from building. Also grabs food. |
-| **Sleep** | **None** — military stays active through the night (fatigue recovers while patrolling). |
-| **Hiding** | **Removed** — military does not hide in buildings. Soldiers always patrol and fight. |
+| **Sleep** | **None** — military stays active through the night. |
+| **Overwhelm** | 3+ zombies within 3 units kills the soldier. Prevents soldiers from holding ground indefinitely against hordes. |
 | **Civilian protection** | Engages zombies that are within 5u of nearby civilians, and advances toward bitten civilians. |
 | **Line of sight** | Advances to clear a shot if a building blocks the path. Raycast sampling at 0.5u steps. |
 | **Gunshot alert** | Every shot alerts all zombies within 18u for 5 seconds. |
@@ -231,7 +231,7 @@ Flat 0% when zombies ≤ 10.
 - Watch the first infection in slow-motion replay
 - **Zombies are slower than civilians** (2.0-3.0 vs 3.2-4.0). A civilian who spots danger early can always outrun
 - The chaos meter colour transitions from green → yellow → red as the outbreak escalates
-- Balance tuned to **~50/50 win/loss** (v4: no resist/HP, no bite cooldown, immediate military response)
+- Balance tuned to **~50/50 win/loss** (v4: no resist/HP, no bite cooldown, 8s delayed deployment, soldier overwhelm mechanic)
 - Forage cooldown prevents civilians camping in food stores — they have to rotate back to shelters
 
 ## 🛠️ Tech Stack

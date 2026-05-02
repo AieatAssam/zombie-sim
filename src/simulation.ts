@@ -118,7 +118,7 @@ export class Simulation {
 
   private outbreakPhase = 0;
   private lastPhaseCheck = 0;
-  private deploymentTimer = 0;
+  private deploymentTimer = 8;
   private radioTimer = 10;
   private nextSquadId = 1;
   private hordeCenters: { x: number; z: number; count: number }[] = [];
@@ -160,11 +160,11 @@ export class Simulation {
     }
 
     // Start with 2 initial zombies
-    const initialZombies = 2;
+    const initialZombies = 1;
     for (let zi = 0; zi < initialZombies; zi++) {
       const angle = Math.random() * Math.PI * 2;
-      let zx = Math.cos(angle) * 8;
-      let zz = Math.sin(angle) * 8;
+      let zx = Math.cos(angle) * 6;
+      let zz = Math.sin(angle) * 6;
       if (isInsideBuilding(map.buildings, zx, zz)) { zx -= 3; zz -= 3; }
       entities.push(this.createZombie(zx, zz));
     }
@@ -175,7 +175,7 @@ export class Simulation {
       timeOfDay: 0.08,
       day: 1,
       totalTime: 0,
-      stats: { civilians: civilianCount, zombies: initialZombies, military: 1, zombiesKilledByMilitary: 0, civiliansTurned: 0, civiliansStarved: 0, dead: 0, totalBorn: 0, totalInfected: 0, totalKilled: 0, foodSupply: 100 },
+      stats: { civilians: civilianCount, zombies: initialZombies, military: 0, zombiesKilledByMilitary: 0, civiliansTurned: 0, civiliansStarved: 0, dead: 0, totalBorn: 0, totalInfected: 0, totalKilled: 0, foodSupply: 100 },
       map,
       events: [],
       gameOver: false,
@@ -184,13 +184,7 @@ export class Simulation {
       starvingCount: 0,
       chaosLevel: 0,
     };
-    // Deploy 1 initial rapid-response soldier near center
-    const guardAngle = Math.random() * Math.PI * 2;
-    const guardX = Math.cos(guardAngle) * 5;
-    const guardZ = Math.sin(guardAngle) * 5;
-    const guard = this.createMilitary(guardX, guardZ, this.nextSquadId++);
-    guard.isSquadLeader = true;
-    entities.push(guard);
+
   }
 
   private createCivilian(x: number, z: number): Entity {
@@ -245,7 +239,7 @@ export class Simulation {
       type: 'military', x, z, vx: 0, vz: 0,
       state: 'patrolling', hp: 1, maxHp: 1,
       hunger: 70 + Math.random() * 30, fatigue: 10,
-      ammo: 9999, maxAmmo: 9999, magazineSize: 100, ammoInMag: 100, isReloading: false, reloadTimer: 0,
+      ammo: 100, maxAmmo: 100, magazineSize: 10, ammoInMag: 10, isReloading: false, reloadTimer: 0,
       attackCooldown: 0,
       targetId: null, wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: 1, sleepTimer: 0, forageTimer: 0,
@@ -517,20 +511,20 @@ export class Simulation {
       if (zomb >= 400) targetSoldiers = 250;
     }
     // Keep military strong enough to fight back
-    targetSoldiers = Math.max(targetSoldiers, Math.floor(zomb * 0.95 + 10));
+    targetSoldiers = Math.max(targetSoldiers, Math.floor(zomb * 0.35 + 3));
 
     if (currentMil < targetSoldiers && this.deploymentTimer <= 0) {
-      const toDeploy = Math.min(5, targetSoldiers - currentMil);
+      const toDeploy = Math.min(1, targetSoldiers - currentMil);
       for (let i = 0; i < toDeploy; i++) {
-        // Spawn at multiple entry points — some at edge, some closer to center
+        // Spawn at map edge — takes time to reach the action
         const angle = Math.random() * Math.PI * 2;
-        const radius = Math.random() < 0.3 ? 10 + Math.random() * 8 : 20 + Math.random() * 8;
+        const radius = 24 + Math.random() * 4;
         const x = Math.cos(angle) * radius;
         const z = Math.sin(angle) * radius;
         s.entities.push(this.createMilitary(x + (Math.random() - 0.5) * 3, z + (Math.random() - 0.5) * 3));
         s.stats.military++;
       }
-      this.deploymentTimer = 0.3 + Math.random() * 0.3;
+      this.deploymentTimer = 4 + Math.random() * 2;
       this.logEvent(`🚁 ${toDeploy} soldier${toDeploy > 1 ? 's' : ''} deployed. (${currentMil + toDeploy} total)`, 'military');
       // Emit visual DEPLOY event for renderer (first soldier's position)
       const firstSoldier = s.entities[s.entities.length - toDeploy];
@@ -566,7 +560,7 @@ export class Simulation {
 
     if (!e.isAsleep) { e.vx *= 0.92; e.vz *= 0.92; } else { e.vx *= 0.7; e.vz *= 0.7; }
 
-    let maxSpeed = e.isAsleep ? 0.1 : e.speed * (e.type === 'zombie' ? 1.3 : 1.2);
+    let maxSpeed = e.isAsleep ? 0.1 : e.speed * (e.type === 'zombie' ? 2.0 : 1.2);
     if (e.type === 'civilian' && e.sprintTimer > 0) maxSpeed = e.speed * 3.0;
     const spd = Math.sqrt(e.vx * e.vx + e.vz * e.vz);
     if (spd > maxSpeed) { e.vx = (e.vx / spd) * maxSpeed; e.vz = (e.vz / spd) * maxSpeed; }
@@ -926,7 +920,7 @@ export class Simulation {
     } else {
       const len = dist(e, best) || 1;
       const a = Math.atan2(best.z - e.z, best.x - e.x) + (Math.random() - 0.5) * 0.4;
-      const spd = e.speed * 1.5 * nightMul * (len < 5 ? 1.3 : 1.0);
+      const spd = e.speed * 1.5 * nightMul * (len < 5 ? 2.0 : 1.0);
       e.vx += Math.cos(a) * spd * dt * 0.4;
       e.vz += Math.sin(a) * spd * dt * 0.4;
       e.state = 'hunting';
@@ -990,6 +984,19 @@ export class Simulation {
 
     // Military doesn't hide in buildings — they patrol and fight
     // (Removed hiding state: soldiers always push toward combat)
+    
+    // ─── Zombie overwhelm check: 3+ zombies within 3 units kills soldier ───
+    let overwhelmCount = 0;
+    for (const o of this.state.entities) {
+      if (o.type === 'zombie' && o.state !== 'dead' && dist(e, o) < 3) {
+        overwhelmCount++;
+        if (overwhelmCount >= 3) {
+          e.state = 'dead';
+          this.logEvent(`💀 Soldier #${e.id} killed by zombie swarm!`, 'death');
+          return;
+        }
+      }
+    }
 
     // Squad
     if (e.squadId !== null) {
@@ -1006,45 +1013,47 @@ export class Simulation {
     }
 
     // Combat
-    const nearZ = this.findNearest(e, 25, 'zombie');
+    const nearZ = this.findNearest(e, 20, 'zombie');
     const nearCiv = this.findNearest(e, 12, 'civilian');
-    if (nearCiv && nearZ && dist(nearCiv, nearZ) < 5) {
-      const d = dist(e, nearZ) || 1; e.vx += ((nearZ.x - e.x) / d) * e.speed * 0.5 * dt; e.vz += ((nearZ.z - e.z) / d) * e.speed * 0.5 * dt; e.state = 'engaging'; return;
-    }
 
-    if (nearZ && dist(e, nearZ) < 25) {
+    if (nearZ && dist(e, nearZ) < 20) {
       e.state = 'engaging';
       const d = dist(e, nearZ);
-      if (!this.hasClearShot(e, nearZ) && d > 3) {
-        const len = dist(e, nearZ) || 1; e.vx += ((nearZ.x - e.x) / len) * e.speed * 0.6 * dt; e.vz += ((nearZ.z - e.z) / len) * e.speed * 0.6 * dt; e.aimTimer = 0; return;
+
+      // ─── Civilian protection: fire at zombies near civilians ───
+      if (nearCiv && nearZ && dist(nearCiv, nearZ) < 5 && d >= 8) {
+        // Shoot the threat from range — don't rush in
+        // Just mark as engaging and fall through to combat logic
       }
+
+      // ─── Line of sight: flank slowly, don't charge ───
+      if (!this.hasClearShot(e, nearZ) && d > 3) {
+        // Don't rush — fire and advance together
+        // Just mark LOS blocked for distance management below
+      }
+
       // ─── Distance management: maintain 12-20 unit range ───
-      if (d < 8) {
-        // PANIC BACKUP — zombies too close
-        const len = dist(e, nearZ) || 1; e.aimTimer = 0;
-        e.vx += ((e.x - nearZ.x) / len) * e.speed * 1.2 * dt;
-        e.vz += ((e.z - nearZ.z) / len) * e.speed * 1.2 * dt;
-      } else if (d < 15) {
-        // Back up to preferred range
+      // Always back up when zombie is close, regardless of LOS
+      // ─── Distance management: soldiers mostly hold ground ───
+      // Zombies are faster up close and can overwhelm soldiers
+      if (d < 3) {
+        // Emergency retreat — zombie is already biting
+        e.aimTimer = 0;
         const len = dist(e, nearZ) || 1;
-        const urgency = (15 - d) / 15; // stronger push when closer
-        e.vx += ((e.x - nearZ.x) / len) * e.speed * urgency * 0.8 * dt;
-        e.vz += ((e.z - nearZ.z) / len) * e.speed * urgency * 0.8 * dt;
-      } else if (d > 22) {
-        // Advance slowly toward extreme range zombies
-        const len = dist(e, nearZ) || 1;
-        e.vx += ((nearZ.x - e.x) / len) * e.speed * 0.15 * dt;
-        e.vz += ((nearZ.z - e.z) / len) * e.speed * 0.15 * dt;
-      } // else: hold position at 15-22 units (ideal kill range)
+        e.vx += ((e.x - nearZ.x) / len) * e.speed * 0.6 * dt;
+        e.vz += ((e.z - nearZ.z) / len) * e.speed * 0.6 * dt;
+      } // else: hold ground and shoot
 
       // ─── Shoot while at range ───
-      if (d >= 8 && e.attackCooldown <= 0) {
-        if (e.aimTimer <= 0 && e.ammoInMag > 0) { e.aimTimer = 0.4 + Math.random() * 0.3; e.vx *= 0.85; e.vz *= 0.85; }
+      if (d >= 3 && e.attackCooldown <= 0) {
+        if (e.aimTimer <= 0 && e.ammoInMag > 0) { e.aimTimer = 0.3 + Math.random() * 0.2; e.vx *= 0.9; e.vz *= 0.9; }
         if (e.aimTimer > 0) {
-          e.aimTimer -= dt; e.vx *= 0.85; e.vz *= 0.85;
+          e.aimTimer -= dt; e.vx *= 0.9; e.vz *= 0.9;
           if (e.aimTimer <= 0 && e.ammoInMag > 0) {
-            e.ammoInMag -= 1; e.attackCooldown = 0.4; e.aimTimer = 0;
-            const hitChance = Math.max(35, Math.min(98, Math.floor(92 - d * 1.0)));
+            e.ammoInMag -= 1; e.attackCooldown = 1.0; e.aimTimer = 0;
+            const moving = Math.sqrt(e.vx * e.vx + e.vz * e.vz);
+            const movePenalty = moving > 0.3 ? 10 : 0;
+            const hitChance = Math.max(5, Math.min(90, Math.floor(72 - d * 1.8 - movePenalty)));
             const hit = Math.random() * 100 < hitChance;
             this.state.events.push({ time: this.state.totalTime, day: this.state.day, text: `SHOT:${hit?'HIT':'MISS'}:${e.x},${e.z},${nearZ.x},${nearZ.z}`, type: 'military' });
             for (const z of this.state.entities) { if (z.type === 'zombie' && z.state !== 'dead' && dist(e, z) < 25) { z.alertTimer = 5; z.alertX = e.x; z.alertZ = e.z; } }
