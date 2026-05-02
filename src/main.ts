@@ -54,6 +54,12 @@ const SLOW_MO_FACTOR = 0.3;
 let firstInfectionShown = false;
 let slowMoRestoreSpeed = 1;
 
+// ─── Auto-camera tracking ───
+let autoCamTarget: { x: number; z: number } | null = null;
+let autoCamTimer = 0;
+let autoCamZoom = 0;
+const autoCamDuration = 4;
+
 // ─── Milestone tracking ───
 let milestonesShown = new Set<string>();
 let lastZombieCount = 0;
@@ -315,10 +321,17 @@ function gameLoop(time: number): void {
     sim.tick(simDt);
   }
 
-  // ─── First infection detection & slow-mo ───
+  // ─── First infection detection & slow-mo + auto-camera ───
   const currentInfected = sim.state.stats.totalInfected;
   if (currentInfected > 0 && !firstInfectionShown) {
     firstInfectionShown = true;
+    // Auto-camera: find the bitten civilian and pan to them
+    const bitten = sim.state.entities.find(e => e.type === 'civilian' && e.turnTimer > 0);
+    if (bitten) {
+      autoCamTarget = { x: bitten.x, z: bitten.z };
+      autoCamTimer = autoCamDuration;
+      autoCamZoom = 1;
+    }
     if (!slowMoActive && !paused) {
       slowMoActive = true;
       slowMoTimer = SLOW_MO_DURATION;
@@ -352,12 +365,20 @@ function gameLoop(time: number): void {
     gameOverDiv.style.display = 'flex';
     const box = gameOverDiv.querySelector('.gameover-box') as HTMLElement;
     if (box) {
-      box.textContent = sim.state.gameOverReason;
+      const s = sim.state.stats;
+      const won = sim.state.gameOverReason.includes('SAVED') || sim.state.gameOverReason.includes('eliminated');
+      const turnedPct = s.civilians > 0 ? Math.round((s.civiliansTurned / (s.civiliansTurned + s.civilians)) * 100) : 100;
       box.className = 'gameover-box';
-      if (sim.state.gameOverReason.includes('SAVED') || sim.state.gameOverReason.includes('eliminated')) {
-        box.classList.add('win');
-        showNotification('🎉 CITY SAVED! Zombies eliminated!', 'info');
-      }
+      if (won) box.classList.add('win');
+      box.innerHTML = `
+        <div class="go-title">${sim.state.gameOverReason}</div>
+        <div class="go-stats">
+          <span class="go-line">📅 Day ${sim.state.day} &middot; ${sim.state.totalTime.toFixed(0)}s elapsed</span>
+          <span class="go-line">👥 Population: 400 &rarr; <span class="${s.civilians > 0 ? 'go-civ' : 'go-loss'}">${s.civilians} civil${s.civilians > 0 ? 'ians' : 'ian'}</span> &middot; ${s.zombies} zombie${s.zombies !== 1 ? 's' : ''} &middot; ${s.military} soldier${s.military !== 1 ? 's' : ''}</span>
+          <span class="go-line">🧟 Total infected: <span class="go-loss">${s.totalInfected}</span> &middot; ${s.civiliansTurned} turned &middot; ${s.civiliansStarved} starved &middot; ${s.zombiesKilledByMilitary} killed by military</span>
+          <span class="go-line">💀 Total dead: ${s.dead} (${turnedPct}% of population)</span>
+        </div>
+      `;
     }
   } else {
     gameOverDiv.style.display = 'none';
@@ -396,6 +417,26 @@ function gameLoop(time: number): void {
       zombieBox.classList.add('zombie-alert');
     } else {
       zombieBox.classList.remove('zombie-alert');
+    }
+  }
+
+  // ─── Auto-camera: smooth pan to events ───
+  if (autoCamTimer > 0) {
+    autoCamTimer -= rawDt;
+    if (autoCamTarget) {
+      const target = renderer.controls.target;
+      target.x += (autoCamTarget.x - target.x) * 0.04;
+      target.z += (autoCamTarget.z - target.z) * 0.04;
+      target.y = Math.max(target.y + (1.5 - target.y) * 0.02, 1);
+      const cam = renderer.camera.position;
+      const idealDist = 20 + autoCamZoom * 15;
+      const dx = cam.x - target.x;
+      const dz = cam.z - target.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > idealDist) {
+        cam.x -= dx * 0.02;
+        cam.z -= dz * 0.02;
+      }
     }
   }
 

@@ -884,6 +884,13 @@ export class Simulation {
             }
             e.fatigue = 100; // reset
             this.logEvent(`💥 Zombies breached building #${nearBldg.id}!`, 'zombie');
+            // Emit fire particle event for renderer
+            this.state.events.push({
+              time: this.state.totalTime,
+              day: this.state.day,
+              text: `BREACH_FIRE:${nearBldg.x},${nearBldg.z}`,
+              type: 'warning',
+            });
           }
         } else {
           e.fatigue = Math.min(100, e.fatigue + dt * 2); // recover

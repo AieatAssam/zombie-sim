@@ -49,6 +49,9 @@ A city of 400 civilians, a zombie patient zero, and everything spiralling from t
 - **Occupancy dots** — small blue dots on roofs = how many people are inside
 - **Blood pools** — red circles on ground where anyone dies, fade over 20 seconds
 - **Corpses** — blood pools from starved civilians and killed zombies
+- **Building fire/smoke** — breached buildings emit smoke plumes and ember particles
+- **Auto-camera** — camera pans to first infection for dramatic view
+- **Enhanced game over stats** — detailed breakdown of infection, casualties, and survival
 - **Military tracers** — solid red line = hit, dashed red line = miss, fade over 1.5 seconds
 - **Particle effects** — 2,000 ambient particles, bursts on zombie deaths
 - **Night overlay** — semi-transparent dark plane at night
@@ -226,6 +229,7 @@ Flat 0% when zombies ≤ 10.
 - **Bitten civilians** take 6–10 seconds to turn. Look for green mist and the ☠ skull — you have a real window to watch military save them
 - **Green expanding rings** mean zombies are alerting each other — the horde is coordinating
 - **Brown smoke puffs** = new soldiers deploying
+- **Orange smoke + embers** = a building has been breached by zombies
 - Zombies can't bite civilians who are inside buildings
 - Gunshots alert every zombie within **18 units** — firing draws the horde
 - Watch the first infection in slow-motion replay

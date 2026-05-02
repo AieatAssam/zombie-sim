@@ -988,6 +988,11 @@ export class Renderer3D {
         if (parts.length === 3) {
           this.spawnDeployEffect(parts[0], parts[1], parts[2]);
         }
+      } else if (ev.text.startsWith('BREACH_FIRE:')) {
+        const parts = ev.text.slice(12).split(',').map(Number);
+        if (parts.length === 2) {
+          this.spawnBreachFire(parts[0], parts[1]);
+        }
       }
     }
     this.lastProcessedEvents = events.length;
@@ -1594,6 +1599,15 @@ export class Renderer3D {
     this.spawnParticleBurst(x, z, 0xcccccc, 8 + count * 3);
     // For increased drama, spawn a second burst slightly offset
     this.spawnParticleBurst(x + (Math.random() - 0.5) * 2, z + (Math.random() - 0.5) * 2, 0x6B5B45, 5);
+  }
+
+  private spawnBreachFire(x: number, z: number): void {
+    // Smoke plume from breached building
+    this.spawnParticleBurst(x, z, 0x444400, 20); // brown smoke
+    this.spawnParticleBurst(x, z, 0x884400, 10); // orange embers
+    this.spawnParticleBurst(x + (Math.random() - 0.5) * 3, z + (Math.random() - 0.5) * 3, 0x222222, 8); // dark smoke offset
+    // Continuous smoke marker: spawn a static small dark cloud
+    this.spawnParticleBurst(x, z, 0x333355, 5); // thin grey wisps
   }
 
   reset(): void {

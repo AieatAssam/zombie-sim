@@ -460,6 +460,24 @@ html, body {
   text-shadow: 0 0 40px rgba(255,200,0,0.5);
   box-shadow: 0 0 60px rgba(255,200,0,0.3);
 }
+.go-title {
+  font-size: 28px;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+.go-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.go-line {
+  font-size: 14px;
+  font-weight: 500;
+  opacity: 0.9;
+  line-height: 1.4;
+}
+.go-civ { color: #4499ff; font-weight: 700; }
+.go-loss { color: #ff4444; font-weight: 700; }
 @keyframes gameOverAppear {
   from { transform: scale(0.5); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
