@@ -541,10 +541,9 @@ renderer.renderer.domElement.addEventListener('click', (event: MouseEvent) => {
   entityPopup.classList.remove('active');
 });
 
-function showEntityPopup(entity: { id: number; type: string; hp: number; maxHp: number; state: string; kills?: number; ammo?: number; ammoInMag?: number; isReloading?: boolean; hunger?: number }, x: number, y: number): void {
+function showEntityPopup(entity: { id: number; type: string; state: string; kills?: number; ammo?: number; ammoInMag?: number; isReloading?: boolean; hunger?: number; turnTimer?: number }, x: number, y: number): void {
   const typeLabel = entity.type.charAt(0).toUpperCase() + entity.type.slice(1);
   let html = `<div class="popup-title" style="color: ${entity.type === 'zombie' ? '#33ff33' : entity.type === 'military' ? '#ff3333' : '#4499ff'}">${typeLabel} #${entity.id}</div>`;
-  html += `<div class="popup-row"><span class="label">HP</span><span class="value">${Math.round(entity.hp)}/${entity.maxHp}</span></div>`;
   html += `<div class="popup-row"><span class="label">State</span><span class="value">${entity.state}</span></div>`;
   if (entity.type === 'military') {
     const kills = (entity as any).kills || 0;

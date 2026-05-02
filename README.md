@@ -12,12 +12,14 @@ A city of 400 civilians, a zombie patient zero, and everything spiralling from t
 - **400+ individuals** with layered autonomous AI — civilians seek food & shelter and flee zombies, zombies hunt in hordes, military deploys in coordinated squads
 - **Day/night cycle** with dynamic sky gradient, stars, moon, building window glow, and fog that adapts to camera zoom
 - **Food economy** — finite food per building. Civilians forage at shops/warehouses. Food depletes city-wide. Starvation is a real threat.
-- **Ammo economy** — finite ammo per building. Military uses 50-round magazines and must resupply at police stations or warehouses.
-- **Infection system** — when a zombie bites a civilian there's a 90.5% chance they resist (takes 25 damage), 9.5% chance they turn instantly. The same resist check applies when a fleeing civilian runs into a zombie (bugfix: was 0% resist).
-- **Zombie aggro** — visual range 16 units (requires line of sight), audio aggro 25 units from gunshots (no LOS needed). Zombies are 1.6× faster at night and sprint when close to prey.
+- **Ammo economy** — finite ammo per building. Military uses 100-round magazines and must resupply at police stations or warehouses.
+- **Infection system** — when a zombie bites a civilian there's a 3-5 second turn timer before they become a zombie. No resist, no HP — one bite = eventual conversion. Bitten civilians flee in panic during the turn window.
+- **Zombie aggro** — visual range 18 units (requires line of sight), audio aggro 25 units from gunshots (no LOS needed). Zombies alert nearby zombies when they bite someone.
+- **Zombie speed** — 3.8–4.8 at day, 1.6× faster at night. Zombies sprint when close to prey.
 - **Sprint system** — civilians sprint when a zombie is within 14 units, limited duration with cooldown (longer cooldown if hungry)
-- **Zombie horde clustering** — zombies within 5 units of each other form hordes; older zombies drift toward horde centers
-- **Military squads** — deploy in waves, squad members stay within 5 units of each other, non-leaders follow the leader
+- **Zombie horde clustering** — zombies within 5 units of each other form hordes; all zombies drift toward horde centers
+- **Military squads** — deploy in waves only after outbreak escalates (4+ infections). Squad members stay within 6 units of each other. Non-leaders follow the leader.
+- **Military patrols toward hordes** — soldiers pathfind to the largest zombie cluster
 - **5-phase outbreak system** — escalates from containment through extinction, each phase announced with a radio message
 - **5 intro scenarios** — randomised each run (meteor crash, lab leak, infected cargo, ancient spores, space signal)
 - **Periodic radio messages** — HQ broadcasts that become more panicked as the outbreak worsens
@@ -27,9 +29,11 @@ A city of 400 civilians, a zombie patient zero, and everything spiralling from t
 
 | Detail | How It Works |
 |--------|-------------|
-| **Civilian vs Zombie** | Bite at 1.3 units. 90.5% resistance (takes 25 damage), 9.5% turn into a zombie. Civilians survive up to 4 bites. Both zombie-attack and civilian-fleeing bites use the same resist check. |
-| **Military vs Zombie** | Engagement up to 25 units. Aim takes 0.01-0.3 seconds. Accuracy = 90% − distance × 1.0 (min 35%). Zombies have 30 HP — one hit kills. |
-| **Line of sight** | Buildings block shots. Military advances if LOS is blocked. Zombies also need LOS for visual detection. |
+| **Civilian vs Zombie** | Bite at 1.3 units. 100% infection — no resist, no HP. Bitten civilian gets a 3–5 second turn timer and flees in panic, then turns into a zombie. |
+| **Military vs Zombie** | Engagement up to 25 units. Aim takes 0.2–0.5 seconds. Accuracy = 82% − distance × 1.3 (min 15%). One hit = one kill (no HP). |
+| **Turn timer** | Bitten civilians take 3–5 seconds to turn. During this window they flee and can be killed by military as civilians. |
+| **Zombie call-out** | When a zombie bites someone, nearby zombies (within 15 units) are alerted to the target's location. |
+| **Line of sight** | Buildings block shots and visual detection. Military advances if LOS is blocked. Zombies also need LOS for visual aggro. |
 | **Reload & Resupply** | Military reloads (2s) when magazine is empty, returns to warehouses/police stations when total ammo drops below 30. Also collects food during resupply. |
 | **Audio aggro** | Gunshots alert every zombie within 25 units for 5 seconds, regardless of line of sight. |
 
@@ -95,9 +99,9 @@ npm run dev
 
 | Type | Shape | HP | Speed | Autonomous Behaviour |
 |------|-------|----|-------|---------------------|
-| **Civilian** 🟦 | Cylinder (blue) | 100 | 3.5–4.5 | Wanders, seeks food when hungry (<45), sleeps in buildings at night (fatigue >60), starves when hunger <25, flees from zombies, sprints when threatened |
-| **Zombie** 🟩 | Cone (green) | 30 | 3.5–4.5 (2.5–3.25 if turned) | Hunts nearest human (visual 16u, audio 25u), 1.6× faster at night, sprints within 5u, clusters into hordes |
-| **Military** 🟥 | Box (red) | 100 | 3.5–4.25 | Deploys in squads when threat detected, 100-round magazines, resupplies when total ammo <30, aims before firing |
+| **Civilian** 🟦 | Cylinder (blue) | N/A (0) | 3.2–4.0 | Wanders, seeks food when hungry (<45), sleeps in buildings at night (fatigue >60), starves when hunger <25, flees from zombies, sprints when threatened. Bitten → 3–5s turn timer then becomes zombie. |
+| **Zombie** 🟩 | Cone (green) | N/A (0) | 3.8–4.8 | Hunts nearest human (visual 18u, audio 25u), 1.6× faster at night, sprints within 5u, clusters into hordes, alerts nearby zombies when biting. One shot = one kill by military. |
+| **Military** 🟥 | Box (red) | N/A (0) | 3.8–4.3 | Deploys in waves after 4+ infections, patrols toward largest horde, 100-round magazines, resupplies when total ammo <30, aims 0.2–0.5s before firing. |
 
 ### Entity States
 
@@ -116,20 +120,21 @@ npm run dev
 | **Foraging** | Enters a food building, consumes 8–18 of its finite food after a short timer. Food depletes city-wide. |
 | **Starvation recovery** | Reaching a food building while starving immediately consumes 5 food and restores hunger to 80. |
 | **Sprinting** | Triggered when zombie within 14u. Duration = 2–3.5s (halved if hungry). Cooldown = 3–5s (doubled if hungry). Speed = 3.5× normal. |
-| **Fleeing** | Zombie within 8u → flee 4–6s. Bitten at <1.3u → 90.5% resist (take 25 damage) / 9.5% turn. Same resist check as zombie attacks. |
+| **Fleeing** | Zombie within 8u → flee 4–6s. Bitten at <1.3u → 3–5 second turn timer, then turns into zombie. Flees toward other civilians (safety in numbers). |
 | **Hiding** | Zombie within 5u → enter nearest building for 3–7s. Exit when zombie leaves 14u range, or forced out by hunger <25. |
 
 ### Zombie Behaviour
 
 | Mechanic | Detail |
 |----------|--------|
-| **Visual detection** | 16u range, requires line of sight |
+| **Visual detection** | 18u range, requires line of sight |
 | **Audio detection** | 25u range, triggered by gunshots, LOS not required, lasts 5s |
 | **Night speed** | 1.6× multiplier |
 | **Sprint chase** | 1.6× speed multiplier within 5u of target |
-| **Horde clustering** | Zombies within 5u of each other (3+) cluster. Zombies older than 5s drift toward nearest horde centre. |
+| **Horde clustering** | Zombies within 5u of each other (2+) cluster. All zombies drift toward nearest horde centre. |
 | **Bite** | 1.3u range, 1.2s cooldown. 90.5% resist (civilian loses 25 HP), 9.5% turn. Military: killed instantly. |
-| **Feeding pause** | 2s pause after a bite before resuming hunt |
+| **Feeding pause** | 0.5s pause after a bite before resuming hunt |
+| **Zombie call-out** | When a zombie bites someone, all zombies within 15 units are alerted to the target's location |
 | **Building avoidance** | Cannot enter buildings — pushed out along the closest wall face. Pre-emptive wall sliding. |
 | **Shelter protection** | Cannot bite civilians who are inside buildings (hiding, sleeping, foraging) |
 
@@ -137,14 +142,14 @@ npm run dev
 
 | Mechanic | Detail |
 |----------|--------|
-| **Deployment** | Scales with total threat (zombies + turned). Starts at 4 soldiers, caps at zombies×0.7 + 4. Max 50 soldiers. |
-| **Squads** | Same squad ID. Non-leaders follow the leader. Stay within 5u of squadmates. All engage if one fights. |
+| **Deployment** | Delayed until 4+ infections and 8+ seconds. Scales with infections. Cap zombies×0.4 + 3. Max 50 soldiers. |
+| **Squads** | Same squad ID. Non-leaders follow the leader. Stay within 6u of squadmates. All engage if one fights. |
 | **Combat range** | Optimal 8–14u. Backpedals when zombie <10u, full retreat when <6u, advances when >15u. |
-| **Accuracy** | hit% = 90 − distance × 1.0 (min 35%). At 5u = 85%, at 15u = 75%, at 25u = 65%. |
-| **Aim time** | 0.01–0.3s before firing. Movement slows while aiming. |
+| **Accuracy** | hit% = 82 − distance × 1.3 (min 15%). At 5u = 75%, at 15u = 62%, at 25u = 49%. |
+| **Aim time** | 0.2–0.5s before firing. Movement slows while aiming. |
 | **Reload** | 2s reload when magazine is empty. Draws from 100-round reserve. |
 | **Resupply** | Returns to nearest warehouse/police station when total ammo <30. Consumes up to 60 ammo from building. Also grabs food. |
-| **Hiding** | Hides in nearest building when >2 zombies within 8u AND ammo <5. Regenerates 0.5 ammo/s. Exits when ammo >10 or clear of zombies 15u. |
+| **Hiding** | Hides in nearest building when >3 zombies within 8u AND ammo <10. Regenerates 0.5 ammo/s. Exits when ammo >15 or clear of zombies 15u. |
 | **Civilian protection** | Engages zombies that are within 5u of nearby civilians. |
 | **Line of sight** | Advances to clear a shot if a building blocks the path. Raycast sampling at 0.5u steps. |
 | **Gunshot alert** | Every shot alerts all zombies within 25u for 5 seconds. |
@@ -213,10 +218,12 @@ Flat 0% when zombies ≤ 10.
 - Let it run to **Day 2** before military arrives
 - Click any entity to inspect its current state (military ammo, civilian hunger)
 - Press **L** to toggle the legend
-- Zombies are **1.6× faster at night** — nights past Day 3 get intense
+- Zombies are **1.6× faster at night** — nights get intense fast
+- **Bitten civilians** take 3–5 seconds to turn. Watch them flee in panic before the transformation
+- **Gunfire attracts** zombies, but so do **zombie call-outs** — when one zombie finds prey, nearby zombies hear it
 - One shop has **30 food** — enough to feed 3–4 starving civilians
 - The police station holds **200 ammo** — critical for sustained military operations
-- Balance tuned to ~50/50 win/loss over 100+ trials with resist 90.5%, 1.2s bite cooldown, 100-round magazines, and progressive military deployment
+- Balance tuned to ~50/50 win/loss (v4: turn timer, no resist/HP, delayed deployment)
 - Zombies can't bite civilians who are inside buildings
 - Gunshots alert every zombie within **25 units** — firing draws the horde
 - Watch the first infection in slow-motion replay

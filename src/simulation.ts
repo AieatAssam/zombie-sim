@@ -1,4 +1,4 @@
-// Simulation Engine — core simulation logic v3 (overhauled)
+// Simulation Engine — v4: no resist, no HP, delayed military, smarter AI
 
 import type { Building, WorldMap } from './world';
 import { findNearestBuilding, isInsideBuilding, generateWorld } from './world';
@@ -53,6 +53,7 @@ export interface Entity {
   alertTimer: number;
   alertX: number;
   alertZ: number;
+  turnTimer: number;
   sprintTimer: number;
   sprintCooldown: number;
   maxSprintTime: number;
@@ -114,14 +115,11 @@ export class Simulation {
   history: { day: number; civilians: number; zombies: number; military: number }[] = [];
   private historyTimer = 0;
 
-  // For ambient storytelling
   private outbreakPhase = 0;
   private lastPhaseCheck = 0;
   private deploymentTimer = 0;
   private radioTimer = 10;
   private nextSquadId = 1;
-
-  // Horde grouping: zombie target zones
   private hordeCenters: { x: number; z: number; count: number }[] = [];
 
   constructor() {
@@ -129,31 +127,11 @@ export class Simulation {
     this.state = this.createInitialState(this.map);
 
     const scenarios = [
-      {
-        name: '☄️ Meteor Crash',
-        text: 'A meteorite crashed in the city center, releasing a strange virus. The dead are rising.',
-        type: 'warning' as SimEvent['type'],
-      },
-      {
-        name: '🧪 Lab Leak',
-        text: 'A pharmaceutical lab experienced a containment breach. An unknown pathogen is spreading.',
-        type: 'warning' as SimEvent['type'],
-      },
-      {
-        name: '🚢 Infected Cargo',
-        text: 'A cargo ship docked carrying infected rats. The outbreak has begun in the port district.',
-        type: 'warning' as SimEvent['type'],
-      },
-      {
-        name: '🧬 Ancient Spores',
-        text: 'Construction workers unearthed ancient fungal spores from permafrost. They reanimate dead tissue.',
-        type: 'warning' as SimEvent['type'],
-      },
-      {
-        name: '📡 Signal from Space',
-        text: 'A strange signal from deep space corrupted the city\'s network. People exposed to screens turned violent.',
-        type: 'warning' as SimEvent['type'],
-      },
+      { name: '☄️ Meteor Crash', text: 'A meteorite crashed in the city center, releasing a strange virus. The dead are rising.', type: 'warning' as SimEvent['type'] },
+      { name: '🧪 Lab Leak', text: 'A pharmaceutical lab experienced a containment breach. An unknown pathogen is spreading.', type: 'warning' as SimEvent['type'] },
+      { name: '🚢 Infected Cargo', text: 'A cargo ship docked carrying infected rats. The outbreak has begun in the port district.', type: 'warning' as SimEvent['type'] },
+      { name: '🧬 Ancient Spores', text: 'Construction workers unearthed ancient fungal spores from permafrost. They reanimate dead tissue.', type: 'warning' as SimEvent['type'] },
+      { name: '📡 Signal from Space', text: 'A strange signal from deep space corrupted the city\'s network. People exposed to screens turned violent.', type: 'warning' as SimEvent['type'] },
     ];
 
     const scenario = scenarios[Math.floor(Math.random() * scenarios.length)];
@@ -180,12 +158,13 @@ export class Simulation {
       }
     }
 
-    // Patient zero — start with 2 zombies
-    const initialZombies = 1;
+    // Start with 2 initial zombies
+    const initialZombies = 2;
     for (let zi = 0; zi < initialZombies; zi++) {
-      let zx = (Math.random() - 0.5) * 20;
-      let zz = (Math.random() - 0.5) * 20;
-      if (isInsideBuilding(map.buildings, zx, zz)) { zx -= 5; zz -= 5; }
+      const angle = Math.random() * Math.PI * 2;
+      let zx = Math.cos(angle) * 8;
+      let zz = Math.sin(angle) * 8;
+      if (isInsideBuilding(map.buildings, zx, zz)) { zx -= 3; zz -= 3; }
       entities.push(this.createZombie(zx, zz));
     }
 
@@ -210,7 +189,7 @@ export class Simulation {
     return {
       id: this.nextId++,
       type: 'civilian', x, z, vx: 0, vz: 0,
-      state: 'wandering', hp: 100, maxHp: 100,
+      state: 'wandering', hp: 1, maxHp: 1,
       hunger: 60 + Math.random() * 40, fatigue: 0,
       ammo: 0, maxAmmo: 0, magazineSize: 0, ammoInMag: 0, isReloading: false, reloadTimer: 0,
       attackCooldown: 0,
@@ -218,13 +197,14 @@ export class Simulation {
       aimTimer: 0,
       wanderTimer: Math.random() * 5, sleepTimer: 0, forageTimer: 0,
       buildingId: null, lastUpdateTime: 0,
-      speed: 3.5 + Math.random() * 1.0,
+      speed: 3.2 + Math.random() * 0.8,
       color: '#4499ff', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
       zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
+      turnTimer: 0,
       sprintTimer: 0,
       sprintCooldown: 0,
-      maxSprintTime: 2.0 + Math.random() * 1.5,
+      maxSprintTime: 1.5 + Math.random() * 1.5,
     };
   }
 
@@ -232,16 +212,17 @@ export class Simulation {
     return {
       id: this.nextId++,
       type: 'zombie', x, z, vx: 0, vz: 0,
-      state: 'hunting', hp: 30, maxHp: 30,
+      state: 'hunting', hp: 1, maxHp: 1,
       hunger: 100, fatigue: 100, ammo: 0, maxAmmo: 0, magazineSize: 0, ammoInMag: 0, isReloading: false, reloadTimer: 0,
       attackCooldown: 0, targetId: null,
       wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: Math.random() * 3, sleepTimer: 0, forageTimer: 0,
       buildingId: null, lastUpdateTime: 0,
-      speed: 3.5 + Math.random() * 1.0,
+      speed: 3.8 + Math.random() * 1.0,
       color: '#33ff33', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
       zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
+      turnTimer: 0,
       sprintTimer: 0,
       sprintCooldown: 0,
       maxSprintTime: 0,
@@ -252,17 +233,18 @@ export class Simulation {
     return {
       id: this.nextId++,
       type: 'military', x, z, vx: 0, vz: 0,
-      state: 'patrolling', hp: 100, maxHp: 100,
+      state: 'patrolling', hp: 1, maxHp: 1,
       hunger: 70 + Math.random() * 30, fatigue: 10,
       ammo: 9999, maxAmmo: 9999, magazineSize: 100, ammoInMag: 100, isReloading: false, reloadTimer: 0,
       attackCooldown: 0,
       targetId: null, wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: 1, sleepTimer: 0, forageTimer: 0,
       buildingId: null, lastUpdateTime: 0,
-      speed: 3.5 + Math.random() * 0.75,
+      speed: 3.8 + Math.random() * 0.5,
       color: '#ff3333', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: squadId || null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
       zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
+      turnTimer: 0,
       sprintTimer: 0,
       sprintCooldown: 0,
       maxSprintTime: 0,
@@ -302,43 +284,57 @@ export class Simulation {
     if (s.gameOver) return;
 
     s.totalTime += dt;
-
-    const prevDay = s.day;
     s.day = Math.floor(s.totalTime / DAY_LENGTH) + 1;
     s.timeOfDay = (s.totalTime % DAY_LENGTH) / DAY_LENGTH;
 
     const isNight = s.timeOfDay > 0.65 || s.timeOfDay < 0.08;
 
-    // ─── Phase tracking ───
     this.updatePhase();
-
-    // ─── Deployment timer countdown ───
     if (this.deploymentTimer > 0) this.deploymentTimer -= dt;
-
-    // ─── Military deployment ───
     this.deployMilitary();
-
-    // ─── Calculate horde centers for zombie grouping ───
     this.computeHordeCenters();
 
-    // ─── Update entities ───
+    // Process turn timers first (convert pending civilians to zombies)
+    for (const e of s.entities) {
+      if (e.type === 'civilian' && e.turnTimer > 0 && e.state !== 'dead') {
+        e.turnTimer -= dt;
+        if (e.turnTimer <= 0) {
+          // Turn into zombie!
+          e.type = 'zombie';
+          e.speed = 3.5 + Math.random() * 0.8;
+          e.color = '#33ff33';
+          e.state = 'hunting';
+          e.isAsleep = false;
+          e.attackCooldown = 6.0;
+          e.zombieAge = 0;
+          e.buildingId = null;
+          e.turnTimer = 0;
+          this.state.stats.totalInfected++;
+          this.state.stats.civiliansTurned++;
+          this.logEventThrottled(`Civilian #${e.id} has turned into a zombie!`, 'zombie', 2);
+        } else {
+          // Still turning — civilian keeps fleeing in panic
+          if (e.state !== 'fleeing') {
+            e.state = 'fleeing';
+            e.isPanicking = true;
+            e.panicTimer = 6;
+          }
+        }
+      }
+    }
+
     for (const e of s.entities) {
       if (e.state === 'dead') continue;
       this.updateEntity(e, dt, isNight);
-      // Push out of buildings after movement
-      this.pushOutOfBuilding(e);
+      if (e.type === 'zombie') this.pushOutOfBuilding(e);
     }
 
-    // Remove dead
     s.entities = s.entities.filter(e => e.state !== 'dead');
 
-    // ─── Stats ───
     let civ = 0, zomb = 0, mil = 0;
     for (const e of s.entities) {
       if (e.state === 'dead') continue;
-      if (e.type === 'civilian') civ++;
-      else if (e.type === 'zombie') zomb++;
-      else if (e.type === 'military') mil++;
+      e.type === 'civilian' ? civ++ : e.type === 'zombie' ? zomb++ : mil++;
     }
 
     s.stats.civilians = civ;
@@ -346,18 +342,13 @@ export class Simulation {
     s.stats.military = mil;
     s.stats.dead = s.stats.zombiesKilledByMilitary + s.stats.civiliansTurned + s.stats.civiliansStarved;
 
-    // Food supply — percentage of "full rations" (each civilian needs ~2 food units)
     let totalFood = 0;
     for (const b of s.buildings) totalFood += b.food;
     const humanPop = civ + mil;
-    if (humanPop > 0) {
-      // "Full supply" = 2 food units per person (enough for refeeding)
-      s.stats.foodSupply = Math.min(100, Math.max(0, Math.round((totalFood / Math.max(1, humanPop * 2)) * 100)));
-    } else {
-      s.stats.foodSupply = 0;
-    }
+    s.stats.foodSupply = humanPop > 0
+      ? Math.min(100, Math.max(0, Math.round((totalFood / Math.max(1, humanPop * 2)) * 100)))
+      : 0;
 
-    // Total ammo remaining
     let totalAmmo = 0;
     let starvingCount = 0;
     for (const e of s.entities) {
@@ -368,7 +359,6 @@ export class Simulation {
     s.totalAmmoRemaining = totalAmmo;
     s.starvingCount = starvingCount;
 
-    // Chaos level (0-100) — only meaningful when significant zombie presence
     if (zomb <= 10) {
       s.chaosLevel = 0;
     } else {
@@ -379,7 +369,6 @@ export class Simulation {
       ));
     }
 
-    // History
     this.historyTimer += dt;
     if (this.historyTimer > 1.5) {
       this.historyTimer = 0;
@@ -387,16 +376,12 @@ export class Simulation {
       if (this.history.length > 500) this.history.shift();
     }
 
-    // Radio messages
     this.radioTimer -= dt;
     if (this.radioTimer <= 0 && zomb > 5) {
       this.radioTimer = 8 + Math.random() * 10;
       this.broadcastRadioMessage(zomb, civ, mil);
     }
 
-    // ─── Game over checks ───
-    // Loss: all civilians dead or turned. Military surviving doesn't count.
-    // Win: all zombies eliminated with at least one civilian alive.
     if (civ <= 0 && zomb > 0) {
       s.gameOver = true;
       s.gameOverReason = '💀 ALL CIVILIANS LOST. ZOMBIES WIN.';
@@ -405,7 +390,7 @@ export class Simulation {
       s.gameOver = true;
       s.gameOverReason = '💀 NO CIVILIANS SURVIVED.';
       this.logEvent('☠️ GAME OVER — No civilians remain.', 'death');
-    } else if (zomb <= 0 && civ > 0 && s.day > 2) {
+    } else if (zomb <= 0 && civ > 0 && s.day > 5) {
       s.gameOver = true;
       s.gameOverReason = '🎉 CITY SAVED! ZOMBIES ELIMINATED.';
       this.logEvent('✅ GAME OVER — Zombies eliminated! Civilians survive.', 'info');
@@ -414,7 +399,7 @@ export class Simulation {
 
   private broadcastRadioMessage(zomb: number, civ: number, mil: number): void {
     const ratio = civ > 0 ? zomb / (civ + 1) : 99;
-    const messages: string[] = [
+    const messages = [
       '📻 "[HQ] Situation report requested. Stay calm and seek shelter."',
       '📻 "[HQ] Evacuation routes are being established. Await further orders."',
       '📻 "[HQ] Civilians advised to stay indoors. Military units inbound."',
@@ -422,21 +407,16 @@ export class Simulation {
       '📻 "[HQ] All units: contain the outbreak at all costs."',
       '📻 "[HQ] Rescue convoys delayed. Hold your positions."',
     ];
-    const panicMessages: string[] = [
-      '📻 "⚠️ [HQ] OUTBREAK CRITICAL! Code Red! All personnel to defensive positions!"',
-      '📻 "🚨 [HQ] Civilian casualties mounting! Requesting immediate air support!"',
-      '📻 "☢️ [HQ] Contamination zone expanding! Evacuate all sectors!"',
-      '📻 "💀 [HQ] We are losing control! This is not a drill!"',
-    ];
-    const victoryMessages: string[] = [
-      '📻 "[HQ] Infection rate slowing. Good work, soldiers."',
-      '📻 "[HQ] Civilians report reduced zombie activity. Maintain vigilance."',
-    ];
-
     if (ratio > 2 && zomb > 30) {
+      const panicMessages = [
+        '📻 "⚠️ [HQ] OUTBREAK CRITICAL! Code Red! All personnel to defensive positions!"',
+        '📻 "🚨 [HQ] Civilian casualties mounting! Requesting immediate air support!"',
+        '📻 "☢️ [HQ] Contamination zone expanding! Evacuate all sectors!"',
+        '📻 "💀 [HQ] We are losing control! This is not a drill!"',
+      ];
       this.logEvent(panicMessages[Math.floor(Math.random() * panicMessages.length)], 'warning');
     } else if (ratio < 0.3 && mil > 0) {
-      this.logEvent(victoryMessages[Math.floor(Math.random() * victoryMessages.length)], 'info');
+      this.logEvent(['📻 "[HQ] Infection rate slowing. Good work, soldiers."','📻 "[HQ] Civilians report reduced zombie activity. Maintain vigilance."'][Math.floor(Math.random()*2)], 'info');
     } else {
       this.logEvent(messages[Math.floor(Math.random() * messages.length)], 'info');
     }
@@ -445,76 +425,44 @@ export class Simulation {
   private computeHordeCenters(): void {
     const zombies = this.state.entities.filter(e => e.type === 'zombie' && e.state !== 'dead');
     this.hordeCenters = [];
-
-    // Simple clustering: group zombies by proximity
     const clustered = new Set<number>();
     for (const z of zombies) {
       if (clustered.has(z.id)) continue;
       const nearby = zombies.filter(o => o.id !== z.id && !clustered.has(o.id) && dist(z, o) < 5);
-      if (nearby.length >= 3) {
-        let cx = z.x, cz = z.z;
-        let count = 1 + nearby.length;
-        for (const n of nearby) {
-          cx += n.x; cz += n.z;
-          clustered.add(n.id);
-        }
+      if (nearby.length >= 2) {
+        let cx = z.x, cz = z.z, count = 1 + nearby.length;
+        for (const n of nearby) { cx += n.x; cz += n.z; clustered.add(n.id); }
         clustered.add(z.id);
-        cx /= count; cz /= count;
-        this.hordeCenters.push({ x: cx, z: cz, count });
+        this.hordeCenters.push({ x: cx / count, z: cz / count, count });
       }
     }
   }
 
-  // ─── BUILDING COLLISION: smooth slide along walls ───
   private pushOutOfBuilding(e: Entity): void {
     for (const b of this.state.buildings) {
-      const hw = b.w / 2 + 0.2;  // Slight margin for smoothness
-      const hd = b.d / 2 + 0.2;
-      const dx = e.x - b.x;
-      const dz = e.z - b.z;
-      
+      const hw = b.w / 2 + 0.2, hd = b.d / 2 + 0.2;
+      const dx = e.x - b.x, dz = e.z - b.z;
       if (Math.abs(dx) < hw && Math.abs(dz) < hd) {
-        // Zombies get pushed out with smooth slide-along-wall physics
         if (e.type === 'zombie') {
-          // Calculate overlap on each axis
-          const overlapX = hw - Math.abs(dx);
-          const overlapZ = hd - Math.abs(dz);
-          
-          // Push out along the axis with LESS overlap (the direction of entry)
-          if (overlapX < overlapZ) {
-            // Push horizontally, preserve vertical velocity for sliding
+          const ox = hw - Math.abs(dx), oz = hd - Math.abs(dz);
+          if (ox < oz) {
             if (dx > 0) { e.x = b.x + hw; e.vx = Math.max(e.vx, 0.1); }
             else { e.x = b.x - hw; e.vx = Math.min(e.vx, -0.1); }
           } else {
-            // Push vertically, preserve horizontal velocity for sliding
             if (dz > 0) { e.z = b.z + hd; e.vz = Math.max(e.vz, 0.1); }
             else { e.z = b.z - hd; e.vz = Math.min(e.vz, -0.1); }
           }
         } else {
-          // Civilians and military can stay inside
           e.buildingId = b.id;
         }
       } else if (e.type === 'zombie') {
-        // Pre-emptive steering: if zombie is heading directly toward a building wall,
-        // add a slight perpendicular nudge to slide around it
-        const margin = 0.5;
-        const nearX = Math.abs(dx) < hw + margin && Math.abs(dx) > hw - margin;
-        const nearZ = Math.abs(dz) < hd + margin && Math.abs(dz) > hd - margin;
-        
-        if (nearX && Math.abs(dz) < hd) {
-          // Zombie is near a vertical wall — slide along it
-          const headingZ = e.vz;
-          if (Math.abs(headingZ) < 0.1 && Math.abs(e.vx) > 0.1) {
-            // Moving directly at wall — add sliding velocity
-            e.vz += (dz > 0 ? 0.3 : -0.3) * 0.3;
-          }
-        } else if (nearZ && Math.abs(dx) < hw) {
-          // Zombie is near a horizontal wall — slide along it
-          const headingX = e.vx;
-          if (Math.abs(headingX) < 0.1 && Math.abs(e.vz) > 0.1) {
-            // Moving directly at wall — add sliding velocity
-            e.vx += (dx > 0 ? 0.3 : -0.3) * 0.3;
-          }
+        const m = 0.5;
+        const nearX = Math.abs(dx) < hw + m && Math.abs(dx) > hw - m;
+        const nearZ = Math.abs(dz) < hd + m && Math.abs(dz) > hd - m;
+        if (nearX && Math.abs(dz) < hd && Math.abs(e.vz) < 0.1 && Math.abs(e.vx) > 0.1) {
+          e.vz += (dz > 0 ? 0.3 : -0.3) * 0.3;
+        } else if (nearZ && Math.abs(dx) < hw && Math.abs(e.vx) < 0.1 && Math.abs(e.vz) > 0.1) {
+          e.vx += (dx > 0 ? 0.3 : -0.3) * 0.3;
         }
       }
     }
@@ -523,13 +471,10 @@ export class Simulation {
   private updatePhase(): void {
     const s = this.state;
     const ratio = s.stats.civilians > 0 ? s.stats.zombies / (s.stats.civilians + s.stats.zombies) : 1;
-
     const newPhase = ratio < 0.1 ? 0 : ratio < 0.4 ? 1 : ratio < 0.7 ? 2 : ratio < 0.9 ? 3 : 4;
-    const day = s.day;
-
-    if (newPhase !== this.outbreakPhase && day > this.lastPhaseCheck) {
+    if (newPhase !== this.outbreakPhase && s.day > this.lastPhaseCheck) {
       this.outbreakPhase = newPhase;
-      this.lastPhaseCheck = day;
+      this.lastPhaseCheck = s.day;
       const msgs = [
         '📡 PHASE 1: Containment — outbreak localized.',
         '⚠️ PHASE 2: Spread — infection crossing containment zones.',
@@ -537,41 +482,33 @@ export class Simulation {
         '🆘 PHASE 4: Collapse — civilization breaking down!',
         '☠️ PHASE 5: Extinction-level event imminent.',
       ];
-      if (newPhase >= 0 && newPhase < msgs.length) {
-        this.logEvent(msgs[newPhase], 'warning');
-      }
+      if (newPhase >= 0 && newPhase < msgs.length) this.logEvent(msgs[newPhase], 'warning');
     }
   }
 
   private deployMilitary(): void {
     const s = this.state;
-    const zombieThreat = s.stats.zombies;
-    const civilianCount = s.stats.civilians;
-    const totalThreat = zombieThreat + s.stats.civiliansTurned;
+    const infections = s.stats.civiliansTurned;
+    const currentMil = s.stats.military;
+    const zomb = s.stats.zombies;
 
-    // Deployment thresholds based on infection level
-    // Small initial force arrives early, then scales with threat
+    const MIN_INFECTIONS = 2;
     let targetSoldiers = 0;
 
-    if (totalThreat >= 1) targetSoldiers = 4;
-    if (totalThreat >= 8) targetSoldiers = 6;
-    if (totalThreat >= 20) targetSoldiers = 8;
-    if (totalThreat >= 40) targetSoldiers = 12;
-    if (totalThreat >= 70) targetSoldiers = 16;
-    if (totalThreat >= 100) targetSoldiers = 22;
-    if (totalThreat >= 140) targetSoldiers = 28;
-    if (totalThreat >= 190) targetSoldiers = 35;
-    if (totalThreat >= 260) targetSoldiers = 42;
-    if (totalThreat >= 340) targetSoldiers = 50;
+    if (infections >= MIN_INFECTIONS && s.totalTime > 8) {
+      if (infections >= 3) targetSoldiers = 4;
+      if (infections >= 10) targetSoldiers = 6;
+      if (infections >= 20) targetSoldiers = 10;
+      if (infections >= 35) targetSoldiers = 16;
+      if (infections >= 60) targetSoldiers = 24;
+      if (infections >= 100) targetSoldiers = 35;
+      if (infections >= 160) targetSoldiers = 50;
+    }
 
-    // Cap soldiers relative to zombie count
-    targetSoldiers = Math.min(targetSoldiers, Math.floor(zombieThreat * 0.7 + 4));
+    targetSoldiers = Math.min(targetSoldiers, Math.floor(zomb * 0.4 + 3));
 
-    // Deploy in waves - don't spawn all at once
-    const currentMil = s.stats.military;
     if (currentMil < targetSoldiers && this.deploymentTimer <= 0) {
-      const toDeploy = Math.min(1 + Math.floor(Math.random() * 2), targetSoldiers - currentMil);
-      // Spawn at random edge of map
+      const toDeploy = Math.min(2, targetSoldiers - currentMil);
       for (let i = 0; i < toDeploy; i++) {
         const angle = Math.random() * Math.PI * 2;
         const x = Math.cos(angle) * (MAP_HALF - 3);
@@ -579,455 +516,220 @@ export class Simulation {
         s.entities.push(this.createMilitary(x + (Math.random() - 0.5) * 3, z + (Math.random() - 0.5) * 3));
         s.stats.military++;
       }
-      this.deploymentTimer = 0.5 + Math.random() * 1.0; // Cooldown between waves
-      this.logEvent(`🚁 ${toDeploy} soldier${toDeploy>1?'s':''} deployed. (${currentMil + toDeploy} total)`, 'military');
+      this.deploymentTimer = 2 + Math.random() * 2;
+      this.logEvent(`🚁 ${toDeploy} soldier${toDeploy > 1 ? 's' : ''} deployed. (${currentMil + toDeploy} total)`, 'military');
     }
   }
 
   private updateEntity(e: Entity, dt: number, isNight: boolean): void {
-    const s = this.state;
-
     switch (e.type) {
       case 'civilian': this.updateCivilian(e, dt, isNight); break;
       case 'zombie': this.updateZombie(e, dt, isNight); break;
       case 'military': this.updateMilitary(e, dt, isNight); break;
     }
 
-    // Movement
-    if (!e.isAsleep) {
+    if (!e.isAsleep && e.type !== 'zombie') {
+      e.x += e.vx * dt;
+      e.z += e.vz * dt;
+    } else if (!e.isAsleep) {
       e.x += e.vx * dt;
       e.z += e.vz * dt;
     }
 
-    // Map bounds
-    const halfW = s.map.width / 2 - 0.5;
-    const halfD = s.map.depth / 2 - 0.5;
-    e.x = Math.max(-halfW, Math.min(halfW, e.x));
-    e.z = Math.max(-halfD, Math.min(halfD, e.z));
+    const hw = this.state.map.width / 2 - 0.5, hd = this.state.map.depth / 2 - 0.5;
+    e.x = Math.max(-hw, Math.min(hw, e.x));
+    e.z = Math.max(-hd, Math.min(hd, e.z));
 
-    // Friction
-    if (!e.isAsleep) {
-      e.vx *= 0.92;
-      e.vz *= 0.92;
-    } else {
-      e.vx *= 0.7;
-      e.vz *= 0.7;
-    }
+    if (!e.isAsleep) { e.vx *= 0.92; e.vz *= 0.92; } else { e.vx *= 0.7; e.vz *= 0.7; }
 
-    // Clamp velocity (sprinting civilians get extra speed)
     let maxSpeed = e.isAsleep ? 0.1 : e.speed * (e.type === 'zombie' ? 1.3 : 1.2);
-    if (e.type === 'civilian' && e.sprintTimer > 0) {
-      maxSpeed = e.speed * 3.5; // Allow sprint speed
-    }
+    if (e.type === 'civilian' && e.sprintTimer > 0) maxSpeed = e.speed * 3.0;
     const spd = Math.sqrt(e.vx * e.vx + e.vz * e.vz);
-    if (spd > maxSpeed) {
-      e.vx = (e.vx / spd) * maxSpeed;
-      e.vz = (e.vz / spd) * maxSpeed;
-    }
+    if (spd > maxSpeed) { e.vx = (e.vx / spd) * maxSpeed; e.vz = (e.vz / spd) * maxSpeed; }
   }
 
   // ─── CIVILIAN AI ───
   private updateCivilian(e: Entity, dt: number, isNight: boolean): void {
-    e.hunger -= 0.5 * dt;
+    // Hunger drains faster when hiding (fear/stress metabolism)
+    const fearHunger = e.state === 'hiding' ? 0.08 : 0;
+    e.hunger -= (0.5 + fearHunger) * dt;
     e.fatigue += 0.15 * dt;
 
-    // Check if starving
-    if (e.hunger < 25 && e.state !== 'starving' && e.state !== 'dead') {
-      e.state = 'starving';
-    }
-
-    // Starvation
+    if (e.hunger < 25 && e.state !== 'starving' && e.state !== 'dead') e.state = 'starving';
     if (e.hunger <= -10) {
       e.state = 'dead';
       this.state.stats.civiliansStarved++;
-      // Signal for renderer to create a blood pool
-      this.state.events.push({
-        time: this.state.totalTime,
-        day: this.state.day,
-        text: `CORPSE:${e.x},${e.z}`,
-        type: 'death',
-      });
+      this.state.events.push({ time: this.state.totalTime, day: this.state.day, text: `CORPSE:${e.x},${e.z}`, type: 'death' });
       return;
     }
 
-
-
-    // Night shelter: civilians seek buildings to sleep in
+    // Night shelter
     if (isNight && e.fatigue > 60 && e.state !== 'starving' && e.state !== 'fleeing' && e.state !== 'hiding') {
       if (e.state !== 'seeking_shelter' && !e.isAsleep) {
-        // Find nearest building to sleep in
-        const targetB = findNearestBuilding(this.state.buildings, e.x, e.z);
-        if (targetB) {
-          e.state = 'seeking_shelter';
-          e.buildingId = targetB.id;
-          e.wanderTimer = 10; // 10-second timeout before fallback sleep
-        } else {
-          // Fallback: sleep in place if no building found
-          e.isAsleep = true;
-          e.state = 'sleeping';
-          e.vx = 0; e.vz = 0;
-          return;
-        }
+        const tb = findNearestBuilding(this.state.buildings, e.x, e.z);
+        if (tb) { e.state = 'seeking_shelter'; e.buildingId = tb.id; e.wanderTimer = 10; }
+        else { e.isAsleep = true; e.state = 'sleeping'; e.vx = 0; e.vz = 0; return; }
       }
       if (e.state === 'seeking_shelter') {
-        const targetB = e.buildingId !== null ? this.state.buildings.find(b => b.id === e.buildingId) : null;
-        // Use wanderTimer as a crude timeout counter (10 seconds)
+        const tb = e.buildingId !== null ? this.state.buildings.find(b => b.id === e.buildingId) : null;
         e.wanderTimer -= dt;
-        if (e.wanderTimer <= 0) {
-          // Timeout: just sleep in place as fallback
-          e.isAsleep = true;
-          e.state = 'sleeping';
-          e.vx = 0; e.vz = 0;
-          return;
-        }
-        if (targetB) {
-          const d = dist(e, targetB);
-          if (d < 1) {
-            // Close enough — enter building and sleep
-            e.buildingId = targetB.id;
-            e.isAsleep = true;
-            e.state = 'sleeping';
-            e.vx = 0; e.vz = 0;
-            return;
-          } else {
-            // Move toward building
-            const dx = targetB.x - e.x;
-            const dz = targetB.z - e.z;
-            const len = Math.sqrt(dx * dx + dz * dz) || 1;
-            const spd = e.speed * 1.0;
-            e.vx += (dx / len) * spd * dt * 0.4;
-            e.vz += (dz / len) * spd * dt * 0.4;
-            return;
-          }
-        } else {
-          // Building reference lost, fallback
-          e.isAsleep = true;
-          e.state = 'sleeping';
-          e.vx = 0; e.vz = 0;
-          return;
-        }
+        if (e.wanderTimer <= 0) { e.isAsleep = true; e.state = 'sleeping'; e.vx = 0; e.vz = 0; return; }
+        if (tb) {
+          if (dist(e, tb) < 1) { e.buildingId = tb.id; e.isAsleep = true; e.state = 'sleeping'; e.vx = 0; e.vz = 0; return; }
+          else { const d = dist(e, tb) || 1; e.vx += ((tb.x - e.x) / d) * e.speed * dt * 0.4; e.vz += ((tb.z - e.z) / d) * e.speed * dt * 0.4; return; }
+        } else { e.isAsleep = true; e.state = 'sleeping'; e.vx = 0; e.vz = 0; return; }
       }
     }
     if (e.isAsleep) {
-      e.fatigue -= 3.0 * dt;
-      e.hunger -= 0.1 * dt;
-      if (e.fatigue <= 0) {
-        e.fatigue = 0;
-        e.isAsleep = false;
-        e.state = 'wandering';
-        e.buildingId = null; // Leave building when waking up
-      }
+      e.fatigue -= 3.0 * dt; e.hunger -= 0.1 * dt;
+      if (e.fatigue <= 0) { e.fatigue = 0; e.isAsleep = false; e.state = 'wandering'; e.buildingId = null; }
       return;
     }
 
-    // ─── SEEKING SHELTER (handles both night and day seeking) ───
+    // Daytime seeking_shelter
     if (e.state === 'seeking_shelter') {
-      const targetB = e.buildingId !== null ? this.state.buildings.find(b => b.id === e.buildingId) : null;
-      if (targetB) {
-        const d = dist(e, targetB);
-        if (d < 1) {
-          // Enter building
-          e.buildingId = targetB.id;
-          e.state = 'hiding';
-          e.hideTimer = 4 + Math.random() * 6;
-          e.vx = 0; e.vz = 0;
-          return;
-        } else {
-          // Move toward building
-          const dx = targetB.x - e.x;
-          const dz = targetB.z - e.z;
-          const len = Math.sqrt(dx * dx + dz * dz) || 1;
-          const spd = e.speed * 1.2;
-          e.vx += (dx / len) * spd * dt * 0.4;
-          e.vz += (dz / len) * spd * dt * 0.4;
-          return;
-        }
-      } else {
-        // No target — fall back to wandering
-        e.state = 'wandering';
-        e.buildingId = null;
-      }
+      const tb = e.buildingId !== null ? this.state.buildings.find(b => b.id === e.buildingId) : null;
+      if (tb) {
+        if (dist(e, tb) < 1) { e.buildingId = tb.id; e.state = 'hiding'; e.hideTimer = 4 + Math.random() * 6; e.vx = 0; e.vz = 0; return; }
+        else { const d = dist(e, tb) || 1; e.vx += ((tb.x - e.x) / d) * e.speed * dt * 0.4; e.vz += ((tb.z - e.z) / d) * e.speed * dt * 0.4; return; }
+      } else { e.state = 'wandering'; e.buildingId = null; }
     }
 
-    // ─── PANIC / FLEEING SYSTEM ───
-    const fleeRange = 14;
-    const nearestZombie = this.findNearest(e, fleeRange, 'zombie');
-    const zombieDist = nearestZombie ? dist(e, nearestZombie) : 999;
-    const nearestZombieClose = this.findNearest(e, 12, 'zombie');
-    const zombieDistClose = nearestZombieClose ? dist(e, nearestZombieClose) : 999;
+    // Zombie detection
+    const detectRange = isNight ? 18 : 14;
+    const nearestZ = this.findNearest(e, detectRange, 'zombie');
+    const zDist = nearestZ ? dist(e, nearestZ) : 999;
 
-    // Dramatic panic: flee immediately when zombie within 8 units
-    if (zombieDistClose < 8) {
-      e.state = 'fleeing';
-      e.isPanicking = true;
-      e.panicTimer = 4 + Math.random() * 2;
-      e.buildingId = null; // Cancel any foraging mission
+    if (zDist < 8) {
+      e.state = 'fleeing'; e.isPanicking = true; e.panicTimer = 4 + Math.random() * 2; e.buildingId = null;
     }
-
-    // Hide in building if zombie very close
-    if (zombieDistClose < 5 && e.state !== 'hiding') {
+    if (zDist < 5 && e.state !== 'hiding') {
       const building = isInsideBuilding(this.state.buildings, e.x, e.z, 0.5);
       if (!building) {
-        // Try to find a nearby building to hide in
-        const targetB = findNearestBuilding(this.state.buildings, e.x, e.z);
-        if (targetB && dist(e, targetB) < 4) {
-          // Move toward building and hide
-          e.state = 'fleeing';
-          e.isPanicking = true;
-          e.panicTimer = 5;
-        } else {
-          e.state = 'fleeing';
-          e.isPanicking = true;
-          e.panicTimer = 4 + Math.random() * 2;
-        }
+        const tb = findNearestBuilding(this.state.buildings, e.x, e.z);
+        if (tb && dist(e, tb) < 4) { e.state = 'fleeing'; e.isPanicking = true; e.panicTimer = 5; }
       } else {
-        // Hide inside
-        e.state = 'hiding';
-        e.hideTimer = 3 + Math.random() * 4;
-        e.vx = 0; e.vz = 0;
+        e.state = 'hiding'; e.hideTimer = 3 + Math.random() * 4; e.vx = 0; e.vz = 0;
       }
     }
-
-    // ─── ENHANCED HIDING: seek building when outnumbered by zombies ───
-    if (nearestZombie && zombieDist < 18 && e.hunger >= 25 && e.state !== 'hiding' && e.state !== 'fleeing' && (e.state as string) !== 'seeking_shelter') {
-      let zombiesVisible = 0;
-      let alliesVisible = 0;
-      for (const other of this.state.entities) {
-        if (other.id === e.id || other.state === 'dead') continue;
-        if (dist(e, other) > 18) continue;
-        if (other.type === 'zombie') zombiesVisible++;
-        else if (other.type === 'civilian' || other.type === 'military') alliesVisible++;
+    if (nearestZ && zDist < 18 && e.hunger >= 25 && e.state !== 'hiding' && e.state !== 'fleeing') {
+      let zN = 0, aN = 0;
+      for (const o of this.state.entities) {
+        if (o.id === e.id || o.state === 'dead') continue;
+        if (dist(e, o) > 18) continue;
+        o.type === 'zombie' ? zN++ : (o.type === 'civilian' || o.type === 'military') ? aN++ : 0;
       }
-      if (zombiesVisible > alliesVisible) {
-        const targetB = findNearestBuilding(this.state.buildings, e.x, e.z);
-        if (targetB) {
-          e.state = 'seeking_shelter';
-          e.buildingId = targetB.id;
-        }
-      }
+      if (zN > aN) { const tb = findNearestBuilding(this.state.buildings, e.x, e.z); if (tb) { e.state = 'seeking_shelter'; e.buildingId = tb.id; } }
     }
 
-    // ─── SPRINT SYSTEM ───
-    // Manage sprint cooldown
-    if (e.sprintCooldown > 0) {
-      e.sprintCooldown -= dt;
-    }
-
-    // Activate sprint when zombie detected within 14 units
-    if (nearestZombie && zombieDist < 14 && e.sprintCooldown <= 0 && e.sprintTimer <= 0) {
+    if (e.sprintCooldown > 0) e.sprintCooldown -= dt;
+    if (nearestZ && zDist < 14 && e.sprintCooldown <= 0 && e.sprintTimer <= 0)
       e.sprintTimer = e.maxSprintTime * (1 - (e.hunger < 25 ? 0.5 : 0));
-    }
-
-    // Manage sprint timer
     if (e.sprintTimer > 0) {
       e.sprintTimer -= dt;
-      if (e.sprintTimer <= 0) {
-        e.sprintTimer = 0;
-        if (e.hunger < 25) {
-          e.sprintCooldown = 6 + Math.random() * 3;
-        } else {
-          e.sprintCooldown = 3 + Math.random() * 2;
-        }
-      }
+      if (e.sprintTimer <= 0) { e.sprintTimer = 0; e.sprintCooldown = e.hunger < 25 ? 6 + Math.random() * 3 : 3 + Math.random() * 2; }
     }
 
-    // State machine
     switch (e.state) {
       case 'hiding': {
-        e.vx = 0; e.vz = 0;
-        e.hideTimer -= dt;
-        // Only hunger < 25 can force civilians out of hiding early
-        const forcedOut = e.hunger < 25;
-        // Check if zombie is still near before coming out
-        const zCheck = this.findNearest(e, 14, 'zombie');
-        if (e.hideTimer <= 0 || forcedOut || !zCheck || dist(e, zCheck) > 14) {
+        e.vx = 0; e.vz = 0; e.hideTimer -= dt;
+        const forced = e.hunger < 25;
+        const zc = this.findNearest(e, 14, 'zombie');
+        if (e.hideTimer <= 0 || forced || !zc || dist(e, zc) > 14) {
           e.state = 'wandering';
-          // Exit away from nearest zombie
-          if (zCheck) {
-            const dx = e.x - zCheck.x;
-            const dz = e.z - zCheck.z;
-            const len = Math.sqrt(dx * dx + dz * dz) || 1;
-            e.wanderAngle = Math.atan2(dz, dx) + (Math.random() - 0.5) * 1.0;
-          } else {
-            e.wanderAngle = Math.random() * Math.PI * 2;
-          }
+          if (zc) { const d = dist(e, zc) || 1; e.wanderAngle = Math.atan2(e.z - zc.z, e.x - zc.x) + (Math.random() - 0.5) * 1.0; }
+          else e.wanderAngle = Math.random() * Math.PI * 2;
           e.wanderTimer = 1.5;
         }
         break;
       }
-
       case 'fleeing': {
         const z = this.findNearest(e, 25, 'zombie');
         if (z) {
           const d = dist(e, z);
           if (d < 1.3) {
-            // Bitten — resist or turn
-            if (Math.random() < 0.905) {
-              // Resist! Take damage instead
-              e.hp -= 25;
-              if (e.hp <= 0) {
-                e.state = 'dead';
-                this.state.stats.civiliansStarved++;
-                return;
-              }
-            } else {
-              e.type = 'zombie';
-              e.hp = 30;
-              e.maxHp = 30;
-              e.speed = 2.6 + Math.random() * 0.75;
-              e.color = '#33ff33';
-              e.state = 'hunting';
-              e.isAsleep = false;
-              e.attackCooldown = 1.2;
-              e.zombieAge = 0;
-              e.buildingId = null;
-              this.state.stats.totalInfected++;
-              this.state.stats.civiliansTurned++;
-              this.logEventThrottled(`Civilian #${e.id} was bitten and turned!`, 'zombie', 3);
-              return;
+            // Already turning — desperation shove to create distance!
+            if (e.turnTimer > 0) { 
+              z.vx += (e.x - z.x) * 0.5; z.vz += (e.z - z.z) * 0.5; // shove zombie back
+              e.state = 'fleeing'; e.isPanicking = true; e.panicTimer = 3; 
+              const len2 = dist(e, z) || 1; e.vx += ((e.x - z.x) / len2) * e.speed * 3.0 * dt; e.vz += ((e.z - z.z) / len2) * e.speed * 3.0 * dt; 
+              break; 
             }
+            // Last-stand shove for unbitten cornered civilians!
+            if (e.sprintTimer <= 0 && e.sprintCooldown <= 0) {
+              // Push the zombie back and make a break for it
+              z.vx += (e.x - z.x) * 0.3; z.vz += (e.z - z.z) * 0.3;
+              e.sprintTimer = 0.5; // quick burst
+              const len2 = dist(e, z) || 1; e.vx += ((e.x - z.x) / len2) * e.speed * 3.0 * dt; e.vz += ((e.z - z.z) / len2) * e.speed * 3.0 * dt;
+              this.logEventThrottled(`Civilian #${e.id} shoved a zombie back!`, 'zombie', 5);
+              break;
+            }
+            // Bitten! Start turn timer instead of instant conversion
+            e.turnTimer = 2 + Math.random() * 2;
+            e.state = 'fleeing';
+            e.isPanicking = true;
+            e.panicTimer = e.turnTimer + 1;
+            this.logEventThrottled(`Civilian #${e.id} was bitten and is turning!`, 'zombie', 2);
+            // Alert nearby zombies
+            this.alertNearbyZombies(z, e, 12);
+            return;
           } else {
-            // Flee away from zombie with sprint speed when available
-            const dx = e.x - z.x;
-            const dz = e.z - z.z;
-            const len = Math.sqrt(dx * dx + dz * dz) || 1;
-            const fleeAngle = Math.atan2(dz, dx);
-            const jitter = (Math.random() - 0.5) * 1.2; // More jitter for panic
-            const sprintMul = e.sprintTimer > 0 ? 3.0 : 1.8;
-            const spd = e.speed * sprintMul;
+            const len = dist(e, z) || 1;
+            let fleeAngle = Math.atan2(e.z - z.z, e.x - z.x);
+            const ally = this.findNearest(e, 15, 'civilian');
+            if (ally && dist(e, ally) > 3) fleeAngle = fleeAngle * 0.7 + Math.atan2(ally.z - e.z, ally.x - e.x) * 0.3;
+            const jitter = (Math.random() - 0.5) * 1.2;
+            const mul = e.sprintTimer > 0 ? 2.5 : 1.8;
+            const spd = e.speed * mul;
             e.vx += Math.cos(fleeAngle + jitter) * spd * dt * 0.5;
             e.vz += Math.sin(fleeAngle + jitter) * spd * dt * 0.5;
           }
         }
         e.panicTimer -= dt;
-        if (e.panicTimer <= 0 && (!nearestZombie || dist(e, nearestZombie) > 18)) {
-          e.isPanicking = false;
-          e.state = 'wandering';
-        }
+        if (e.panicTimer <= 0 && (!nearestZ || dist(e, nearestZ) > 18)) { e.isPanicking = false; e.state = 'wandering'; }
         break;
       }
-
       case 'starving': {
-        // Starving: desperate for food, ignores distant zombies
-        // Reduced speed, more desperate behavior
         e.wanderTimer -= dt;
-
-        // Find nearest food building
-        const foodB = this.findNearestFoodBuilding(e.x, e.z);
-        if (foodB && dist(e, foodB) < 1.5) {
-          // Entering food building clears starvation immediately
-          foodB.food -= 5;
-          e.hunger = 80;
-          e.state = 'wandering'; // No longer starving
-          this.logEventThrottled(`Civilian #${e.id} found food and is no longer starving.`, 'info', 5);
-          e.buildingId = null;
-          e.wanderAngle = Math.random() * Math.PI * 2;
-          e.forageTimer = 8 + Math.random() * 4; // 8-12s cooldown
-          e.vx *= 0.8; e.vz *= 0.8;
-        } else if (foodB) {
-          // Move toward food, but avoid nearby zombies (within 4 units)
-          const zNear = this.findNearest(e, 8, 'zombie');
-          if (zNear && dist(e, zNear) < 4) {
-            // Flee first!
-            const dx = e.x - zNear.x;
-            const dz = e.z - zNear.z;
-            const len = Math.sqrt(dx * dx + dz * dz) || 1;
-            e.vx += (dx / len) * e.speed * 2.0 * dt;
-            e.vz += (dz / len) * e.speed * 2.0 * dt;
-          } else {
-            // Move toward food
-            const dx = foodB.x - e.x;
-            const dz = foodB.z - e.z;
-            const len = Math.sqrt(dx * dx + dz * dz) || 1;
-            // If zombie nearby but not too close, add a perpendicular detour
-            if (zNear && dist(e, zNear) < 8) {
-              const perpX = -dz / len;
-              const perpZ = dx / len;
-              e.vx += (dx / len * 0.6 + perpX * 0.5) * e.speed * 0.6 * dt;
-              e.vz += (dz / len * 0.6 + perpZ * 0.5) * e.speed * 0.6 * dt;
-            } else {
-              e.vx += (dx / len) * e.speed * 0.5 * dt;
-              e.vz += (dz / len) * e.speed * 0.5 * dt;
-            }
-          }
+        const fb = this.findNearestFoodBuilding(e.x, e.z);
+        if (fb && dist(e, fb) < 1.5) {
+          fb.food -= 5; e.hunger = 80; e.state = 'wandering';
+          this.logEventThrottled(`Civilian #${e.id} found food.`, 'info', 5);
+          e.buildingId = null; e.wanderAngle = Math.random() * Math.PI * 2; e.forageTimer = 8 + Math.random() * 4; e.vx *= 0.8; e.vz *= 0.8;
+        } else if (fb) {
+          const zn = this.findNearest(e, 8, 'zombie');
+          if (zn && dist(e, zn) < 4) { const d = dist(e, zn) || 1; e.vx += ((e.x - zn.x) / d) * e.speed * 2.0 * dt; e.vz += ((e.z - zn.z) / d) * e.speed * 2.0 * dt; }
+          else { const d = dist(e, fb) || 1; e.vx += ((fb.x - e.x) / d) * e.speed * 0.5 * dt; e.vz += ((fb.z - e.z) / d) * e.speed * 0.5 * dt; }
         } else {
-          // No food source found — wander desperately
-          if (e.wanderTimer <= 0) {
-            e.wanderAngle = Math.random() * Math.PI * 2;
-            e.wanderTimer = 1 + Math.random() * 2;
-          }
-          const spd = e.speed * 0.5; // Starving: weak, moves slowly
-          e.vx += Math.cos(e.wanderAngle) * spd * dt * 0.5;
-          e.vz += Math.sin(e.wanderAngle) * spd * dt * 0.5;
+          if (e.wanderTimer <= 0) { e.wanderAngle = Math.random() * Math.PI * 2; e.wanderTimer = 1 + Math.random() * 2; }
+          e.vx += Math.cos(e.wanderAngle) * e.speed * 0.5 * dt * 0.5;
+          e.vz += Math.sin(e.wanderAngle) * e.speed * 0.5 * dt * 0.5;
         }
         break;
       }
-
       case 'foraging': {
-        e.forageTimer -= dt;
-        e.vx *= 0.9; e.vz *= 0.9;
-        // Check for nearby zombies while foraging
-        const zNear = this.findNearest(e, 8, 'zombie');
-        if (zNear && dist(e, zNear) < 5) {
-          e.state = 'fleeing';
-          e.isPanicking = true;
-          e.panicTimer = 4 + Math.random() * 2;
-          break;
-        }
+        e.forageTimer -= dt; e.vx *= 0.9; e.vz *= 0.9;
+        const zn = this.findNearest(e, 8, 'zombie');
+        if (zn && dist(e, zn) < 5) { e.state = 'fleeing'; e.isPanicking = true; e.panicTimer = 4 + Math.random() * 2; break; }
         if (e.forageTimer <= 0) {
-          if (e.buildingId !== null) {
-            const b = this.state.buildings.find(b => b.id === e.buildingId);
-            if (b && b.food > 0) {
-              const found = Math.min(b.food, 8 + Math.floor(Math.random() * 10));
-              b.food -= found;
-              e.hunger = Math.min(100, e.hunger + found);
-            }
-          }
-          // Leave food building — wander away, can't re-forage immediately
-          e.state = 'wandering';
-          e.buildingId = null;
-          e.wanderAngle = Math.random() * Math.PI * 2;
-          e.forageTimer = 5 + Math.random() * 3; // 5-8s cooldown before can forage again
+          if (e.buildingId !== null) { const b = this.state.buildings.find(b => b.id === e.buildingId); if (b && b.food > 0) { const f = Math.min(b.food, 8 + Math.floor(Math.random() * 10)); b.food -= f; e.hunger = Math.min(100, e.hunger + f); } }
+          e.state = 'wandering'; e.buildingId = null; e.wanderAngle = Math.random() * Math.PI * 2; e.forageTimer = 5 + Math.random() * 3;
         }
         break;
       }
-
       case 'wandering':
       default: {
         e.wanderTimer -= dt;
-
-        // If hungry, seek food
         if (e.hunger < 45) {
-          const foodB = this.findNearestFoodBuilding(e.x, e.z);
-          if (foodB && foodB.food > 0) {
-            const dx = foodB.x - e.x;
-            const dz = foodB.z - e.z;
-            const d = Math.sqrt(dx * dx + dz * dz);
-
-            // Only forage if hungry AND zombie check is safe enough
+          const fb = this.findNearestFoodBuilding(e.x, e.z);
+          if (fb && fb.food > 0) {
             const nearZomb = this.findNearest(e, 12, 'zombie');
-            const safeToForage = !nearZomb || dist(e, nearZomb) > 5;
-
-            if (safeToForage) {
-              e.wanderAngle = Math.atan2(dz, dx);
-              e.wanderTimer = Math.max(2, d / (e.speed * 0.8));
-              e.state = 'foraging';
-              e.buildingId = foodB.id;
-              e.forageTimer = e.wanderTimer + 2;
-            } else {
-              // Too dangerous — keep wandering away from zombies
-              const zDx = e.x - nearZomb!.x;
-              const zDz = e.z - nearZomb!.z;
-              e.wanderAngle = Math.atan2(zDz, zDx) + (Math.random() - 0.5) * 0.5;
-              e.wanderTimer = 1 + Math.random() * 2;
-            }
+            if (!nearZomb || dist(e, nearZomb) > 5) {
+              const d = dist(e, fb); e.wanderAngle = Math.atan2(fb.z - e.z, fb.x - e.x); e.wanderTimer = Math.max(2, d / (e.speed * 0.8)); e.state = 'foraging'; e.buildingId = fb.id; e.forageTimer = e.wanderTimer + 2;
+            } else { const d = dist(e, nearZomb) || 1; e.wanderAngle = Math.atan2(e.z - nearZomb.z, e.x - nearZomb.x) + (Math.random() - 0.5) * 0.5; e.wanderTimer = 1 + Math.random() * 2; }
           }
         }
-
-        if (e.wanderTimer <= 0) {
-          e.wanderAngle = Math.random() * Math.PI * 2;
-          e.wanderTimer = 2 + Math.random() * 5;
-        }
+        if (e.wanderTimer <= 0) { e.wanderAngle = Math.random() * Math.PI * 2; e.wanderTimer = 2 + Math.random() * 5; }
         const spd = e.speed * (e.hunger < 20 ? 0.7 : 1.0);
         e.vx += Math.cos(e.wanderAngle) * spd * dt * 0.25;
         e.vz += Math.sin(e.wanderAngle) * spd * dt * 0.25;
@@ -1037,34 +739,22 @@ export class Simulation {
   }
 
   private findNearestFoodBuilding(x: number, z: number): Building | null {
-    let best: Building | null = null;
-    let bestDist = Infinity;
+    let best: Building | null = null, bestDist = Infinity;
     for (const b of this.state.buildings) {
       if (b.food <= 0) continue;
-      const dx = b.x - x;
-      const dz = b.z - z;
-      const d = Math.sqrt(dx * dx + dz * dz);
-      if (d < bestDist) {
-        bestDist = d;
-        best = b;
-      }
+      const d = Math.sqrt((b.x - x) ** 2 + (b.z - z) ** 2);
+      if (d < bestDist) { bestDist = d; best = b; }
     }
     return best;
   }
 
   private findNearestAmmoBuilding(x: number, z: number): Building | null {
-    let best: Building | null = null;
-    let bestDist = Infinity;
+    let best: Building | null = null, bestDist = Infinity;
     for (const b of this.state.buildings) {
       if (b.ammo <= 0) continue;
       if (b.type !== 'warehouse' && b.type !== 'police') continue;
-      const dx = b.x - x;
-      const dz = b.z - z;
-      const d = Math.sqrt(dx * dx + dz * dz);
-      if (d < bestDist) {
-        bestDist = d;
-        best = b;
-      }
+      const d = Math.sqrt((b.x - x) ** 2 + (b.z - z) ** 2);
+      if (d < bestDist) { bestDist = d; best = b; }
     }
     return best;
   }
@@ -1073,545 +763,284 @@ export class Simulation {
   private updateZombie(e: Entity, dt: number, isNight: boolean): void {
     e.attackCooldown -= dt;
     e.zombieAge += dt;
+    if (e.alertTimer > 0) e.alertTimer -= dt;
 
-    // Alert timer: count down when alerted by gunshots
-    if (e.alertTimer > 0) {
-      e.alertTimer -= dt;
-    }
-
-    // Feeding timer: after biting, stay near for 2 seconds
     if (e.state === 'feeding') {
-      e.feedingTimer -= dt;
-      e.vx *= 0.85;
-      e.vz *= 0.85;
-      if (e.feedingTimer <= 0) {
-        e.state = 'hunting';
-      }
+      e.feedingTimer -= dt; e.vx *= 0.85; e.vz *= 0.85;
+      if (e.feedingTimer <= 0) e.state = 'hunting';
       return;
     }
 
-    // Night speed boost
-    const nightSpeedMul = isNight ? 1.6 : 1.0;
+    const nightMul = isNight ? 1.6 : 1.0;
+    const VISUAL = 14, AUDIO = 22;
 
-    // ─── Aggro system ───
-    // Visual aggro: 10 units, requires LOS check
-    // Audio aggro: 25 units (alertTimer active), no LOS needed
-    // Without aggro: random wandering with direction changes
-    const VISUAL_RANGE = 16;
-    const AUDIO_RANGE = 25;
+    // Throttled target search: full scan every 4 ticks, reuse cache otherwise
+    let best: Entity | null = null;
+    let bestD = e.alertTimer > 0 ? AUDIO : VISUAL;
+    
+    // Try cached target first (valid for 4 ticks)
+    if (e.targetId !== null && (Math.floor(e.zombieAge) % 4 !== 0 || e.alertTimer > 0)) {
+      const cached = this.state.entities.find(o => o.id === e.targetId);
+      if (cached && cached.state !== 'dead' && cached.type !== 'zombie' && dist(e, cached) < bestD) {
+        const cd = dist(e, cached);
+        if (cd < 4 || e.alertTimer > 0 || this.hasClearShot(e, cached)) {
+          best = cached; bestD = cd;
+        }
+      }
+    }
+    
+    // Full scan only when needed (every 4 ticks, or no cached target, or alerted)
+    if (!best && (Math.floor(e.zombieAge) % 4 === 0 || e.alertTimer > 0 || !best)) {
+      for (const o of this.state.entities) {
+        if (o.id === e.id || o.state === 'dead') continue;
+        if (o.type !== 'civilian' && o.type !== 'military') continue;
+        if (o.type === 'civilian' && o.buildingId !== null && (o.state === 'hiding' || o.state === 'sleeping' || o.state === 'seeking_shelter' || o.state === 'foraging')) continue;
+        const d = dist(e, o);
+        if (d < bestD) {
+          if (d < 4 || e.alertTimer > 0 || this.hasClearShot(e, o)) {
+            bestD = d; best = o;
+            if (d < 1.5) break;
+          }
+        }
+      }
+    }
+    
+    // Cache the target
+    if (best) e.targetId = best.id;
 
-    let bestTarget: Entity | null = null;
-    let bestDist = e.alertTimer > 0 ? AUDIO_RANGE : VISUAL_RANGE;
-
-    for (const other of this.state.entities) {
-      if (other.id === e.id || other.state === 'dead') continue;
-      if (other.type !== 'civilian' && other.type !== 'military') continue;
-      // Skip civilians who are safely inside a building (hunger is what drives them out)
-      if (other.type === 'civilian' && other.buildingId !== null && (other.state === 'hiding' || other.state === 'sleeping' || other.state === 'seeking_shelter' || other.state === 'foraging')) continue;
-      const d = dist(e, other);
-      if (d < bestDist) {
-        // For visual aggro (no alert), check line of sight
-        if (e.alertTimer <= 0 && !this.hasClearShot(e, other)) continue;
-        bestDist = d;
-        bestTarget = other;
+    if (e.alertTimer > 0 && !best) {
+      const d = Math.sqrt((e.alertX - e.x) ** 2 + (e.alertZ - e.z) ** 2);
+      if (d > 1) {
+        const a = Math.atan2(e.alertZ - e.z, e.alertX - e.x) + (Math.random() - 0.5) * 0.3;
+        e.vx += Math.cos(a) * e.speed * nightMul * 0.35 * dt;
+        e.vz += Math.sin(a) * e.speed * nightMul * 0.35 * dt;
+        e.state = 'hunting'; return;
       }
     }
 
-    // If alerted but no target found, move toward alert source
-    if (e.alertTimer > 0 && !bestTarget) {
-      const dx = e.alertX - e.x;
-      const dz = e.alertZ - e.z;
-      const distToAlert = Math.sqrt(dx * dx + dz * dz);
-      if (distToAlert > 1) {
-        const len = distToAlert || 1;
-        const jitter = (Math.random() - 0.5) * 0.3;
-        const angle = Math.atan2(dz, dx) + jitter;
-        e.vx += Math.cos(angle) * e.speed * nightSpeedMul * 0.35 * dt;
-        e.vz += Math.sin(angle) * e.speed * nightSpeedMul * 0.35 * dt;
-        e.state = 'hunting';
-        return;
+    if (this.hordeCenters.length > 0 && !best) {
+      const nh = this.hordeCenters.reduce((a, b) => dist(e, { x: a.x, z: a.z }) < dist(e, { x: b.x, z: b.z }) ? a : b);
+      if (nh.count >= 3) {
+        const d = Math.sqrt((nh.x - e.x) ** 2 + (nh.z - e.z) ** 2) || 1;
+        e.vx += ((nh.x - e.x) / d) * e.speed * nightMul * 0.15 * dt;
+        e.vz += ((nh.z - e.z) / d) * e.speed * nightMul * 0.15 * dt;
       }
     }
 
-    const target = bestTarget;
-
-    // Horde attraction: older zombies are drawn to horde centers (gentle pull)
-    if (this.hordeCenters.length > 0 && e.zombieAge > 5 && !target) {
-      const nearestHorde = this.hordeCenters.reduce((a, b) =>
-        dist(e, { x: a.x, z: a.z }) < dist(e, { x: b.x, z: b.z }) ? a : b
-      );
-      if (nearestHorde.count >= 3) {
-        const dx = nearestHorde.x - e.x;
-        const dz = nearestHorde.z - e.z;
-        const len = Math.sqrt(dx * dx + dz * dz) || 1;
-        e.vx += (dx / len) * e.speed * nightSpeedMul * 0.15 * dt;
-        e.vz += (dz / len) * e.speed * nightSpeedMul * 0.15 * dt;
-      }
-    }
-
-    // ─── No target: random wandering ───
-    if (!target) {
+    if (!best) {
       e.wanderTimer -= dt;
-      if (e.wanderTimer <= 0) {
-        e.wanderAngle = Math.random() * Math.PI * 2;
-        e.wanderTimer = 2 + Math.random() * 3; // 2-5 seconds random direction
-      }
-      const spd = e.speed * nightSpeedMul * (0.25 + Math.random() * 0.15);
+      if (e.wanderTimer <= 0) { e.wanderAngle = Math.random() * Math.PI * 2; e.wanderTimer = 2 + Math.random() * 3; }
+      const spd = e.speed * nightMul * (0.25 + Math.random() * 0.15);
       e.vx += Math.cos(e.wanderAngle) * spd * dt;
       e.vz += Math.sin(e.wanderAngle) * spd * dt;
-      e.state = 'hunting';
-      return;
+      e.state = 'hunting'; return;
     }
 
-    const d = dist(e, target);
+    const d = dist(e, best);
+    
+    // Check building breach: zombie near a building with occupants
+    if (d > 1.3 && d < 4) {
+      const nearBldg = isInsideBuilding(this.state.buildings, e.x, e.z, 1.5);
+      if (nearBldg) {
+        const occupants = this.state.entities.filter(o => 
+          o.type === 'civilian' && o.buildingId === nearBldg.id && o.state !== 'dead'
+        );
+        if (occupants.length > 0) {
+          e.fatigue -= dt; // count seconds near this building
+          if (e.fatigue <= 60 && Math.random() < dt * 0.3) {
+            // BREACH! Kick everyone out
+            for (const oc of occupants) {
+              oc.buildingId = null;
+              oc.state = 'fleeing';
+              oc.isPanicking = true;
+              oc.panicTimer = 6 + Math.random() * 4;
+              if (Math.random() < 0.3) {
+                // Bitten during breach
+                oc.turnTimer = 2 + Math.random() * 2;
+                this.state.stats.totalInfected++;
+                this.state.stats.civiliansTurned++;
+              }
+            }
+            e.fatigue = 100; // reset
+            this.logEvent(`💥 Zombies breached building #${nearBldg.id}!`, 'zombie');
+          }
+        } else {
+          e.fatigue = Math.min(100, e.fatigue + dt * 2); // recover
+        }
+      }
+    }
 
     if (d < 1.3) {
-      // Attack
-      e.state = 'attacking';
-      e.vx *= 0.85;
-      e.vz *= 0.85;
+      e.state = 'attacking'; e.vx *= 0.85; e.vz *= 0.85;
       if (e.attackCooldown <= 0) {
-        e.attackCooldown = 1.2;
-        // Safeguard: don't bite civilians who are inside buildings
-        if (target.type === 'civilian' && target.buildingId !== null && (target.state === 'hiding' || target.state === 'sleeping' || target.state === 'seeking_shelter')) {
-          // Target is safe inside a building — move away to find another
-          e.state = 'hunting';
-          e.targetId = null;
-          const dx = e.x - target.x;
-          const dz = e.z - target.z;
-          e.wanderAngle = Math.atan2(dz, dx);
-          e.wanderTimer = 1.5;
-          return;
+        e.attackCooldown = 6.0;
+        if (best.type === 'civilian' && best.buildingId !== null && (best.state === 'hiding' || best.state === 'sleeping' || best.state === 'seeking_shelter')) {
+          e.state = 'hunting'; e.targetId = null;
+          const d2 = dist(e, best) || 1; e.wanderAngle = Math.atan2(e.z - best.z, e.x - best.x); e.wanderTimer = 1.5; return;
         }
-        if (target.type === 'civilian') {
-          // Chance to resist infection (take damage instead)
-          if (Math.random() < 0.905) {
-            // Resist! Civilian takes damage but doesn't turn
-            target.hp -= 25; // Less damage, 100 HP means 4 bites to kill
-            if (target.hp <= 0) {
-              target.state = 'dead';
-              this.state.stats.civiliansStarved++;
-              this.state.events.push({
-                time: this.state.totalTime,
-                day: this.state.day,
-                text: `CORPSE:${target.x},${target.z}`,
-                type: 'death',
-              });
-            }
-          } else {
-            // Turn into zombie
-            target.type = 'zombie';
-            target.hp = 30;
-            target.maxHp = 30;
-            target.speed = 2.6 + Math.random() * 0.75;
-            target.color = '#33ff33';
-            target.state = 'hunting';
-            target.isAsleep = false;
-            target.attackCooldown = 0;
-            target.zombieAge = 0;
-            target.buildingId = null;
-            e.biteAttempts++;
-            e.state = 'feeding';
-            e.feedingTimer = 0.5;
-            this.state.stats.totalInfected++;
-            this.state.stats.civiliansTurned++;
-          }
-          this.logEventThrottled(`Zombie bit civilian #${target.id}!`, 'zombie', 2);
-        } else if (target.type === 'military') {
-          target.state = 'dead';
-          this.logEvent(`Military unit #${target.id} killed by zombie.`, 'death');
+        if (best.type === 'civilian') {
+          // Already turning — don't re-bite
+          if (best.turnTimer > 0) { e.state = 'hunting'; e.targetId = null; e.wanderAngle = Math.atan2(e.z - best.z, e.x - best.x); e.wanderTimer = 1.5; return; }
+          // Bitten — start turn timer
+          best.turnTimer = 2 + Math.random() * 2;
+          best.state = 'fleeing';
+          best.isPanicking = true;
+          best.panicTimer = best.turnTimer + 1;
+          e.biteAttempts++;
+          e.state = 'feeding';
+          e.feedingTimer = 0.5;
+          this.alertNearbyZombies(e, best, 12);
+          this.logEventThrottled(`Zombie bit civilian #${best.id}!`, 'zombie', 2);
+        } else if (best.type === 'military') {
+          best.state = 'dead';
+          this.logEvent(`Military unit #${best.id} killed by zombie.`, 'death');
         }
       }
     } else {
-      // Chase — faster at night with random jitter to prevent single-file lines
-      const dx = target.x - e.x;
-      const dz = target.z - e.z;
-      const len = Math.sqrt(dx * dx + dz * dz) || 1;
-      const jitter = (Math.random() - 0.5) * 0.4; // Slight randomness in chase direction
-      const chaseAngle = Math.atan2(dz, dx) + jitter;
-      const chaseSpd = e.speed * 2.5 * nightSpeedMul;
-      const sprintMul = len < 5 ? 1.6 : 1.0;
-      e.vx += Math.cos(chaseAngle) * chaseSpd * sprintMul * dt * 0.4;
-      e.vz += Math.sin(chaseAngle) * chaseSpd * sprintMul * dt * 0.4;
+      const len = dist(e, best) || 1;
+      const a = Math.atan2(best.z - e.z, best.x - e.x) + (Math.random() - 0.5) * 0.4;
+      const spd = e.speed * 2.5 * nightMul * (len < 5 ? 1.6 : 1.0);
+      e.vx += Math.cos(a) * spd * dt * 0.4;
+      e.vz += Math.sin(a) * spd * dt * 0.4;
       e.state = 'hunting';
+    }
+  }
+
+  private alertNearbyZombies(src: Entity, target: Entity, range: number): void {
+    for (const z of this.state.entities) {
+      if (z.id === src.id || z.type !== 'zombie' || z.state === 'dead') continue;
+      if (dist(z, src) < range) { z.alertTimer = 4; z.alertX = target.x; z.alertZ = target.z; }
     }
   }
 
   // ─── MILITARY AI ───
   private updateMilitary(e: Entity, dt: number, isNight: boolean): void {
-    e.hunger -= 0.4 * dt;
-    e.fatigue += 0.1 * dt;
-    const s = this.state;
-
-
-
-    if (e.hunger <= -20) {
-      e.state = 'dead';
-      this.logEvent(`Military unit #${e.id} died of starvation.`, 'death');
-      return;
-    }
-
-
-
-    // Sleep at night
-    if (isNight && e.fatigue > 80) {
-      e.isAsleep = true;
-      e.state = 'sleeping';
-      e.vx = 0; e.vz = 0;
-      return;
-    }
-    if (e.isAsleep) {
-      e.fatigue -= 3.5 * dt;
-      if (e.fatigue <= 10) { e.fatigue = 10; e.isAsleep = false; e.state = 'patrolling'; }
-      return;
-    }
+    e.hunger -= 0.4 * dt; e.fatigue += 0.1 * dt;
+    if (e.hunger <= -20) { e.state = 'dead'; this.logEvent(`Military unit #${e.id} starved.`, 'death'); return; }
+    if (isNight && e.fatigue > 80) { e.isAsleep = true; e.state = 'sleeping'; e.vx = 0; e.vz = 0; return; }
+    if (e.isAsleep) { e.fatigue -= 3.5 * dt; if (e.fatigue <= 10) { e.fatigue = 10; e.isAsleep = false; e.state = 'patrolling'; } return; }
 
     e.attackCooldown -= dt;
-
-    // ─── Ammo management: reload if magazine empty ───
     if (e.ammoInMag <= 0 && e.ammo > 0) {
-      e.isReloading = true;
-      e.reloadTimer = 2.0;
-      e.state = 'reloading';
-      // Reload: swap a magazine
-      const toLoad = Math.min(e.magazineSize, e.ammo);
-      e.ammoInMag = toLoad;
-      e.ammo -= toLoad;
-      return;
+      e.isReloading = true; e.reloadTimer = 2.0; e.state = 'reloading';
+      const l = Math.min(e.magazineSize, e.ammo); e.ammoInMag = l; e.ammo -= l; return;
     }
 
-    // ─── Emergency resupply: return to ammo building when low ───
-    // Low = less than 3 magazines (30 shots total, or 0 in current mag and <20 in reserve)
-    const totalBullets = e.ammo + e.ammoInMag;
-    if (totalBullets < 30 && e.state !== 'resupplying') {
-      const ammoB = this.findNearestAmmoBuilding(e.x, e.z);
-      if (ammoB && ammoB.ammo > 0) {
-        e.state = 'resupplying';
-        e.buildingId = ammoB.id;
-      }
+    if ((e.ammo + e.ammoInMag) < 30 && e.state !== 'resupplying') {
+      const ab = this.findNearestAmmoBuilding(e.x, e.z);
+      if (ab && ab.ammo > 0) { e.state = 'resupplying'; e.buildingId = ab.id; }
     }
 
     if (e.state === 'resupplying') {
-      const targetB = e.buildingId !== null ? this.state.buildings.find(b => b.id === e.buildingId) : null;
-      if (!targetB || targetB.ammo <= 0) {
-        // Try another ammo building
-        const ammoB = this.findNearestAmmoBuilding(e.x, e.z);
-        if (ammoB && ammoB.ammo > 0) {
-          e.buildingId = ammoB.id;
-        } else {
-          e.state = 'patrolling';
-          e.buildingId = null;
-          return;
-        }
+      const tb = e.buildingId !== null ? this.state.buildings.find(b => b.id === e.buildingId) : null;
+      if (!tb || tb.ammo <= 0) {
+        const ab = this.findNearestAmmoBuilding(e.x, e.z);
+        if (ab && ab.ammo > 0) { e.buildingId = ab.id; } else { e.state = 'patrolling'; e.buildingId = null; return; }
       }
-      const tb = this.state.buildings.find(b => b.id === e.buildingId)!;
-      if (dist(e, tb) < 1.5) {
-        const gotAmmo = Math.min(tb.ammo, 60);
-        if (gotAmmo > 0) {
-          tb.ammo -= gotAmmo;
-          e.ammo = Math.min(e.maxAmmo, e.ammo + gotAmmo);
-          // Also reload magazine
-          if (e.ammoInMag < e.magazineSize && e.ammo > 0) {
-            const fillMag = Math.min(e.magazineSize - e.ammoInMag, e.ammo);
-            e.ammoInMag += fillMag;
-            e.ammo -= fillMag;
-          }
-          this.logEvent(`🔫 Military #${e.id} resupplied at ${tb.type}.`, 'military');
-        }
-        // Grab food too
-        const gotFood = Math.min(tb.food, 10);
-        if (gotFood > 0) { tb.food -= gotFood; e.hunger = Math.min(100, e.hunger + gotFood); }
-        e.state = 'patrolling';
-        e.buildingId = null;
+      const b = this.state.buildings.find(bb => bb.id === e.buildingId)!;
+      if (dist(e, b) < 1.5) {
+        const got = Math.min(b.ammo, 60);
+        if (got > 0) { b.ammo -= got; e.ammo = Math.min(e.maxAmmo, e.ammo + got); if (e.ammoInMag < e.magazineSize && e.ammo > 0) { const f = Math.min(e.magazineSize - e.ammoInMag, e.ammo); e.ammoInMag += f; e.ammo -= f; } }
+        const gf = Math.min(b.food, 10); if (gf > 0) { b.food -= gf; e.hunger = Math.min(100, e.hunger + gf); }
+        e.state = 'patrolling'; e.buildingId = null;
       } else {
-        const dx = tb.x - e.x;
-        const dz = tb.z - e.z;
-        const len = Math.sqrt(dx * dx + dz * dz) || 1;
-        e.vx += (dx / len) * e.speed * 0.45 * dt;
-        e.vz += (dz / len) * e.speed * 0.45 * dt;
+        const d = dist(e, b) || 1; e.vx += ((b.x - e.x) / d) * e.speed * 0.45 * dt; e.vz += ((b.z - e.z) / d) * e.speed * 0.45 * dt;
       }
       return;
     }
 
-    // Forage if hungry
     if (e.hunger < 25) {
-      const targetB = findNearestBuilding(this.state.buildings, e.x, e.z);
-      if (targetB && dist(e, targetB) < 1.5) {
-        const gotFood = Math.min(targetB.food, 15);
-        if (gotFood > 0) { targetB.food -= gotFood; e.hunger = Math.min(100, e.hunger + gotFood); }
-        return;
-      }
+      const tb = findNearestBuilding(this.state.buildings, e.x, e.z);
+      if (tb && dist(e, tb) < 1.5) { const g = Math.min(tb.food, 15); if (g > 0) { tb.food -= g; e.hunger = Math.min(100, e.hunger + g); } return; }
     }
 
-    // ─── HIDING: retreat to building when overwhelmed by zombies and low on ammo ───
-    const isAlreadyHiding = e.state === 'hiding';
-    if (!isAlreadyHiding) {
-      let nearbyZombies = 0;
-      for (const other of this.state.entities) {
-        if (other.type === 'zombie' && other.state !== 'dead' && dist(e, other) < 8) {
-          nearbyZombies++;
-        }
-      }
-      if (nearbyZombies >= 2 && e.ammo < 5) {
-        const targetB = findNearestBuilding(this.state.buildings, e.x, e.z);
-        if (targetB) {
-          e.state = 'hiding';
-          e.buildingId = targetB.id;
-          this.logEventThrottled(`Military #${e.id} hides in a building, overwhelmed by ${nearbyZombies} zombies.`, 'military', 5);
-        }
+    if (e.state !== 'hiding') {
+      let nz = 0;
+      for (const o of this.state.entities) { if (o.type === 'zombie' && o.state !== 'dead' && dist(e, o) < 8) nz++; }
+      if (nz >= 3 && e.ammo < 10) {
+        const tb = findNearestBuilding(this.state.buildings, e.x, e.z);
+        if (tb) { e.state = 'hiding'; e.buildingId = tb.id; }
       }
     }
-
-    // While hiding: stationary, restore ammo from hidden reserves
     if (e.state === 'hiding') {
-      e.vx = 0;
-      e.vz = 0;
-      // Restore 1 round every 2 seconds from hidden reserves
-      e.ammo = Math.min(e.maxAmmo, e.ammo + 0.5 * dt);
-
-      // Check exit conditions: enough ammo (>10 total) OR no zombies within 15 units
-      const zCheck = this.findNearest(e, 15, 'zombie');
-      const noZombiesNear = !zCheck || dist(e, zCheck) > 15;
-      const hasEnoughAmmo = (e.ammo + e.ammoInMag) > 10;
-
-      if (hasEnoughAmmo || noZombiesNear) {
-        e.state = 'patrolling';
-        e.buildingId = null;
-        this.logEventThrottled(`Military #${e.id} exits hiding (ammo: ${Math.round(e.ammo + e.ammoInMag)} rounds).`, 'military', 5);
-        // Reload magazine from restored reserves
-        if (e.ammoInMag < e.magazineSize && e.ammo > 0) {
-          const fillMag = Math.min(e.magazineSize - e.ammoInMag, e.ammo);
-          e.ammoInMag += fillMag;
-          e.ammo -= fillMag;
-        }
+      e.vx = 0; e.vz = 0; e.ammo = Math.min(e.maxAmmo, e.ammo + 0.5 * dt);
+      const zc = this.findNearest(e, 15, 'zombie');
+      if ((!zc || dist(e, zc) > 15) || (e.ammo + e.ammoInMag) > 15) {
+        e.state = 'patrolling'; e.buildingId = null;
+        if (e.ammoInMag < e.magazineSize && e.ammo > 0) { const f = Math.min(e.magazineSize - e.ammoInMag, e.ammo); e.ammoInMag += f; e.ammo -= f; }
       }
       return;
     }
 
-    // ─── SQUAD BEHAVIOR ───
+    // Squad
     if (e.squadId !== null) {
-      // Stay within 5 units of squad members
-      const squadMates = this.state.entities.filter(o =>
-        o.id !== e.id && o.squadId === e.squadId && o.state !== 'dead'
-      );
-      if (squadMates.length > 0) {
-        // Check if too far from squad
-        const avgX = squadMates.reduce((sum, m) => sum + m.x, 0) / squadMates.length;
-        const avgZ = squadMates.reduce((sum, m) => sum + m.z, 0) / squadMates.length;
-        const distToSquad = dist(e, { x: avgX, z: avgZ });
-
-        if (distToSquad > 5) {
-          // Move back toward squad
-          const dx = avgX - e.x;
-          const dz = avgZ - e.z;
-          const len = Math.sqrt(dx * dx + dz * dz) || 1;
-          e.vx += (dx / len) * e.speed * 0.4 * dt;
-          e.vz += (dz / len) * e.speed * 0.4 * dt;
-        }
-
-        // If squad leader and not in combat, move slowly
-        if (e.isSquadLeader && e.state === 'patrolling') {
-          e.wanderAngle = 0;
-          e.speed = 2.5;
-        }
-
-        // Squad members follow leader
+      const sm = this.state.entities.filter(o => o.id !== e.id && o.squadId === e.squadId && o.state !== 'dead');
+      if (sm.length > 0) {
+        const ax = sm.reduce((s, m) => s + m.x, 0) / sm.length;
+        const az = sm.reduce((s, m) => s + m.z, 0) / sm.length;
+        if (dist(e, { x: ax, z: az }) > 6) { const d = Math.sqrt((ax - e.x) ** 2 + (az - e.z) ** 2) || 1; e.vx += ((ax - e.x) / d) * e.speed * 0.4 * dt; e.vz += ((az - e.z) / d) * e.speed * 0.4 * dt; }
         if (!e.isSquadLeader && e.state === 'patrolling') {
-          const leader = squadMates.find(m => m.isSquadLeader) || squadMates[0];
-          if (leader && dist(e, leader) > 3) {
-            const dx = leader.x - e.x;
-            const dz = leader.z - e.z;
-            const len = Math.sqrt(dx * dx + dz * dz) || 1;
-            e.vx += (dx / len) * e.speed * 0.35 * dt;
-            e.vz += (dz / len) * e.speed * 0.35 * dt;
-          }
+          const ldr = sm.find(m => m.isSquadLeader) || sm[0];
+          if (ldr && dist(e, ldr) > 4) { const d = Math.sqrt((ldr.x - e.x) ** 2 + (ldr.z - e.z) ** 2) || 1; e.vx += ((ldr.x - e.x) / d) * e.speed * 0.35 * dt; e.vz += ((ldr.z - e.z) / d) * e.speed * 0.35 * dt; }
         }
       }
     }
 
-    // ─── COMBAT ───
-    // Check for nearby civilians in danger — prioritize protecting them
-    const nearCivInDanger = this.findNearest(e, 12, 'civilian');
-    const nearZombie = this.findNearest(e, 25, 'zombie');
-
-    // If a civilian is very close and a zombie is nearby, protect them
-    if (nearCivInDanger && nearZombie && dist(nearCivInDanger, nearZombie) < 5) {
-      const dx = nearZombie.x - e.x;
-      const dz = nearZombie.z - e.z;
-      const len = Math.sqrt(dx * dx + dz * dz) || 1;
-      e.vx += (dx / len) * e.speed * 0.5 * dt;
-      e.vz += (dz / len) * e.speed * 0.5 * dt;
-      e.state = 'engaging';
-      return;
+    // Combat
+    const nearZ = this.findNearest(e, 25, 'zombie');
+    const nearCiv = this.findNearest(e, 12, 'civilian');
+    if (nearCiv && nearZ && dist(nearCiv, nearZ) < 5) {
+      const d = dist(e, nearZ) || 1; e.vx += ((nearZ.x - e.x) / d) * e.speed * 0.5 * dt; e.vz += ((nearZ.z - e.z) / d) * e.speed * 0.5 * dt; e.state = 'engaging'; return;
     }
 
-    if (nearZombie && dist(e, nearZombie) < 25) {
+    if (nearZ && dist(e, nearZ) < 25) {
       e.state = 'engaging';
-      const d = dist(e, nearZombie);
-
-      // If a building blocks the shot, close in until clear
-      if (!this.hasClearShot(e, nearZombie) && d > 3) {
-        // Move toward the zombie to get a better angle
-        const dx = nearZombie.x - e.x;
-        const dz = nearZombie.z - e.z;
-        const len = Math.sqrt(dx * dx + dz * dz) || 1;
-        e.vx += (dx / len) * e.speed * 0.6 * dt;
-        e.vz += (dz / len) * e.speed * 0.6 * dt;
-        e.aimTimer = 0;
-        return;
+      const d = dist(e, nearZ);
+      if (!this.hasClearShot(e, nearZ) && d > 3) {
+        const len = dist(e, nearZ) || 1; e.vx += ((nearZ.x - e.x) / len) * e.speed * 0.6 * dt; e.vz += ((nearZ.z - e.z) / len) * e.speed * 0.6 * dt; e.aimTimer = 0; return;
       }
-
-      // ─── AIM TIMER + ACCURACY SYSTEM ───
       if (d < 25 && e.attackCooldown <= 0) {
-        if (e.aimTimer <= 0 && e.ammoInMag > 0) {
-          // Start aiming: 0.3-0.8 seconds
-          // Instant fire, no aim delay
-          e.aimTimer = 0.01;
-          e.vx *= 0.9;
-          e.vz *= 0.9;
-        }
-
+        if (e.aimTimer <= 0 && e.ammoInMag > 0) { e.aimTimer = 0.3 + Math.random() * 0.3; e.vx *= 0.9; e.vz *= 0.9; }
         if (e.aimTimer > 0) {
-          // Slow movement while aiming
-          e.aimTimer -= dt;
-          e.vx *= 0.88;
-          e.vz *= 0.88;
-
+          e.aimTimer -= dt; e.vx *= 0.88; e.vz *= 0.88;
           if (e.aimTimer <= 0 && e.ammoInMag > 0) {
-            // Fire!
-            e.ammoInMag -= 1;
-            e.attackCooldown = 0.2;
-            e.aimTimer = 0;
-            e.isAiming = false;
-
-            // Accuracy: hit chance = 90 - (distance * 1.0), min 35%
-            // At distance 5 = 85%, at distance 15 = 75%, at distance 25 = 65%
-            const hitChance = Math.max(35, Math.floor(90 - d * 1.0));
+            e.ammoInMag -= 1; e.attackCooldown = 1.0; e.aimTimer = 0;
+            const hitChance = Math.max(25, Math.min(95, Math.floor(85 - d * 1.0)));
             const hit = Math.random() * 100 < hitChance;
-            const hitStr = hit ? 'HIT' : 'MISS';
-
-            // Always create tracer effect with hit/miss info
-            this.state.events.push({
-              time: this.state.totalTime,
-              day: this.state.day,
-              text: `SHOT:${hitStr}:${e.x},${e.z},${nearZombie.x},${nearZombie.z}`,
-              type: 'military',
-            });
-
-            // Audio aggro: alert all zombies within 25 units of the shooter
-            for (const zombie of this.state.entities) {
-              if (zombie.type === 'zombie' && zombie.state !== 'dead') {
-                if (dist(e, zombie) < 25) {
-                  zombie.alertTimer = 5;
-                  zombie.alertX = e.x;
-                  zombie.alertZ = e.z;
-                }
-              }
-            }
-
-            if (hit) {
-              nearZombie.hp -= 30;
-              if (nearZombie.hp <= 0) {
-                nearZombie.state = 'dead';
-                e.kills++;
-                this.state.stats.zombiesKilledByMilitary++;
-                this.logEventThrottled(`Military #${e.id} killed zombie #${nearZombie.id}.`, 'military', 0.3);
-              }
-            }
+            this.state.events.push({ time: this.state.totalTime, day: this.state.day, text: `SHOT:${hit?'HIT':'MISS'}:${e.x},${e.z},${nearZ.x},${nearZ.z}`, type: 'military' });
+            for (const z of this.state.entities) { if (z.type === 'zombie' && z.state !== 'dead' && dist(e, z) < 25) { z.alertTimer = 5; z.alertX = e.x; z.alertZ = e.z; } }
+            if (hit) { nearZ.state = 'dead'; e.kills++; this.state.stats.zombiesKilledByMilitary++; }
           }
         }
       }
-
-      // Maintain preferred engagement distance (~8-14 units)
-      // Back up when zombie gets close, hold position at ideal range
-      if (d < 6) {
-        // Emergency: zombie right on top — full retreat
-        const dx = e.x - nearZombie.x;
-        const dz = e.z - nearZombie.z;
-        const len = Math.sqrt(dx * dx + dz * dz) || 1;
-        e.vx += (dx / len) * e.speed * 0.8 * dt;
-        e.vz += (dz / len) * e.speed * 0.8 * dt;
-      } else if (d < 10) {
-        // Backpedal: maintain distance, proportional to closeness
-        const dx = e.x - nearZombie.x;
-        const dz = e.z - nearZombie.z;
-        const len = Math.sqrt(dx * dx + dz * dz) || 1;
-        const urgency = (12 - d) / 12; // 0 at 12u, 0.5 at 6u
-        e.vx += (dx / len) * e.speed * urgency * 1.0 * dt;
-        e.vz += (dz / len) * e.speed * urgency * 0.6 * dt;
-      } else if (d > 15) {
-        // Close in to fighting range
-        const dx = nearZombie.x - e.x;
-        const dz = nearZombie.z - e.z;
-        const len = Math.sqrt(dx * dx + dz * dz) || 1;
-        e.vx += (dx / len) * e.speed * 0.3 * dt;
-        e.vz += (dz / len) * e.speed * 0.3 * dt;
-      }
-
-      // Squad engagement: if one squad member is engaging, others join
-      if (e.squadId !== null) {
-        const squadMates = this.state.entities.filter(o =>
-          o.id !== e.id && o.squadId === e.squadId && o.state !== 'dead'
-        );
-        for (const mate of squadMates) {
-          if (mate.state === 'patrolling' || mate.state === 'wandering') {
-            mate.state = 'engaging';
-          }
-        }
-      }
-
+      if (d < 6) { const len = dist(e, nearZ) || 1; e.vx += ((e.x - nearZ.x) / len) * e.speed * 0.8 * dt; e.vz += ((e.z - nearZ.z) / len) * e.speed * 0.8 * dt; }
+      else if (d < 10) { const len = dist(e, nearZ) || 1; const u = (12 - d) / 12; e.vx += ((e.x - nearZ.x) / len) * e.speed * u * 1.0 * dt; e.vz += ((e.z - nearZ.z) / len) * e.speed * u * 0.6 * dt; }
+      else if (d > 15) { const len = dist(e, nearZ) || 1; e.vx += ((nearZ.x - e.x) / len) * e.speed * 0.3 * dt; e.vz += ((nearZ.z - e.z) / len) * e.speed * 0.3 * dt; }
+      if (e.squadId !== null) { for (const m of this.state.entities) { if (m.id !== e.id && m.squadId === e.squadId && m.state !== 'dead' && (m.state === 'patrolling' || m.state === 'wandering')) m.state = 'engaging'; } }
       return;
     }
 
-    // Patrol — move toward city center to find zombies
     e.state = 'patrolling';
-    
-    // If far from center (>15 units), move inward
-    const distFromCenter = Math.sqrt(e.x * e.x + e.z * e.z);
-    if (distFromCenter > 18) {
-      // Move inward slowly
-      const centerAngle = Math.atan2(-e.z, -e.x);
-      e.vx += Math.cos(centerAngle) * e.speed * 0.4 * dt;
-      e.vz += Math.sin(centerAngle) * e.speed * 0.4 * dt;
-    } else {
-      e.wanderTimer -= dt;
-      if (e.wanderTimer <= 0) {
-        e.wanderAngle = Math.random() * Math.PI * 2;
-        e.wanderTimer = 2 + Math.random() * 3;
-      }
-      e.vx += Math.cos(e.wanderAngle) * e.speed * 0.4 * dt;
-      e.vz += Math.sin(e.wanderAngle) * e.speed * 0.4 * dt;
+    const dfc = Math.sqrt(e.x * e.x + e.z * e.z);
+    if (this.hordeCenters.length > 0) {
+      const bh = this.hordeCenters.reduce((a, b) => a.count > b.count ? a : b);
+      if (bh.count >= 3) { const d = Math.sqrt((bh.x - e.x) ** 2 + (bh.z - e.z) ** 2) || 1; e.vx += ((bh.x - e.x) / d) * e.speed * 0.5 * dt; e.vz += ((bh.z - e.z) / d) * e.speed * 0.5 * dt; return; }
     }
+    if (dfc > 18) { const a = Math.atan2(-e.z, -e.x); e.vx += Math.cos(a) * e.speed * 0.4 * dt; e.vz += Math.sin(a) * e.speed * 0.4 * dt; }
+    else { e.wanderTimer -= dt; if (e.wanderTimer <= 0) { e.wanderAngle = Math.random() * Math.PI * 2; e.wanderTimer = 2 + Math.random() * 3; } e.vx += Math.cos(e.wanderAngle) * e.speed * 0.4 * dt; e.vz += Math.sin(e.wanderAngle) * e.speed * 0.4 * dt; }
   }
 
-  // ─── LINE OF SIGHT CHECK ───
   private hasClearShot(shooter: Entity, target: Entity): boolean {
-    // Check if any building intersects the line from shooter to target
-    const dx = target.x - shooter.x;
-    const dz = target.z - shooter.z;
-    const d = Math.sqrt(dx * dx + dz * dz);
-    if (d < 0.1) return true;
-
-    const nx = dx / d;
-    const nz = dz / d;
-
-    // Sample points along the ray
-    const steps = Math.ceil(d / 0.5);
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const px = shooter.x + nx * d * t;
-      const pz = shooter.z + nz * d * t;
-
+    const d = dist(shooter, target); if (d < 0.1) return true;
+    const nx = (target.x - shooter.x) / d, nz = (target.z - shooter.z) / d;
+    for (let i = 0; i <= Math.ceil(d / 0.5); i++) {
+      const px = shooter.x + nx * d * (i / Math.ceil(d / 0.5));
+      const pz = shooter.z + nz * d * (i / Math.ceil(d / 0.5));
       for (const b of this.state.buildings) {
-        // Skip the building the entity might be standing near
         if (dist(shooter, b) < 1.5 && b.h < 3) continue;
         if (dist(target, b) < 1.5 && b.h < 3) continue;
-
-        const hw = b.w / 2 + 0.2;
-        const hd = b.d / 2 + 0.2;
-        if (Math.abs(b.x - px) < hw && Math.abs(b.z - pz) < hd) {
-          return false; // Building blocks the shot
-        }
+        const hw = b.w / 2 + 0.2, hd = b.d / 2 + 0.2;
+        if (Math.abs(b.x - px) < hw && Math.abs(b.z - pz) < hd) return false;
       }
     }
     return true;
@@ -1619,24 +1048,18 @@ export class Simulation {
 
   private findNearest(e: Entity, range: number, type: EntityType): Entity | null {
     let best: Entity | null = null;
-    let bestDist = range;
-    for (const other of this.state.entities) {
-      if (other.id === e.id || other.state === 'dead') continue;
-      if (other.type !== type) continue;
-      const d = dist(e, other);
-      if (d < bestDist) {
-        bestDist = d;
-        best = other;
-      }
+    let bestD2 = range * range; // use squared distance to avoid sqrt
+    const ex = e.x, ez = e.z;
+    for (const o of this.state.entities) {
+      if (o.id === e.id || o.state === 'dead') continue;
+      if (o.type !== type) continue;
+      const dx = o.x - ex, dz = o.z - ez;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD2) { bestD2 = d2; best = o; if (d2 < 1) break; } // early exit at bite range
     }
     return best;
   }
 
-  getStats(): PopulationStats {
-    return { ...this.state.stats };
-  }
-
-  getRecentEvents(count: number = 20): SimEvent[] {
-    return this.events.slice(-count);
-  }
+  getStats(): PopulationStats { return { ...this.state.stats }; }
+  getRecentEvents(count: number = 20): SimEvent[] { return this.events.slice(-count); }
 }
