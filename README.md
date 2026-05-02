@@ -108,7 +108,7 @@ npm run dev
 | Type | Shape | Speed | Autonomous Behaviour |
 |------|-------|-------|---------------------|
 | **Civilian** 🟦 | Cylinder (blue) | 3.2–4.0 | Wanders, seeks food when hungry (<45, with 15-25s forage cooldown), sleeps in buildings at night (fatigue >60), starves when hunger <25, flees from zombies (panic at 10u), sprints when threatened. Bitten → 6–10s turn timer with green mist/colour shift/skull icon, then becomes zombie. Flees toward military when panicking. |
-| **Zombie** 🟩 | Cone (green) | 2.0–3.0 | Hunts nearest human (visual 10u, audio 18u), no bite cooldown (bites immediately on contact), 1.5× chase multiplier, 1.3× sprint within 5u, clusters into hordes (2+), alerts nearby zombies when biting (green ring pulse). One shot = one kill by military. |
+| **Zombie** 🟩 | Cone (green) | 2.5–3.5 | Hunts nearest human (visual 10u, audio 18u), no bite cooldown (bites immediately on contact), 1.5× chase multiplier, 1.3× sprint within 5u, clusters into hordes (2+), alerts nearby zombies when biting (green ring pulse). One shot = one kill by military. |
 | **Military** 🟥 | Box (red) | 3.8–4.3 | Deploys in waves (zomb×0.35+3 scaling, 1/wave, 4-6s wave gap). 8s initial delay. Holds ground + fires at range (doesn't chase). Overwhelmed by 3+ zombies within 3u. Never sleeps or hides. Patrols toward hordes. |
 
 ### Entity States
@@ -141,7 +141,7 @@ npm run dev
 | **Night speed** | 1.5× multiplier (nightMul) |
 | **Sprint chase** | 1.3× speed multiplier within 5u of target |
 | **Horde clustering** | Zombies within 5u of each other (2+) cluster. All zombies drift toward nearest horde centre. |
-| **Bite cooldown** | **None** — zombies bite immediately on contact. Attack cooldown = 0.5s (effectively instant at simulation tick rate). |
+| **Bite cooldown** | **None** — zombies bite immediately on contact. No feeding pause — zombies instantly re-target after biting. |
 | **Zombie call-out** | When a zombie bites someone, all zombies within 15 units are alerted (shown as expanding green ring) |
 | **Building avoidance** | Cannot enter buildings — pushed out along the closest wall face. Pre-emptive wall sliding. |
 | **Search persistence** | Zombies save last known target position and search there for 2s after losing LOS instead of immediately wandering. |
@@ -152,11 +152,11 @@ npm run dev
 
 | Mechanic | Detail |
 |----------|--------|
-| **Deployment** | 8s initial delay, then waves of 1 soldier every 4-6s. Scales at zombies×0.35 + 3. Spawns at map edge (24-28u radius). No initial soldier. |
+| **Deployment** | 12s initial delay, then waves of 1 soldier every 4-6s. Scales at zombies×0.35 + 3. Spawns at map edge (24-28u radius). No initial soldier. |
 | **Squads** | Same squad ID. Non-leaders follow the leader. Stay within 6u of squadmates. All engage if one fights. |
 | **Combat range** | Holds ground at all ranges. Emergency retreat only at <3u (0.6× speed). Fires at d ≥ 3. No advance/approach behavior. |
 | **Fire rate** | 1.0s per shot. Aim time 0.3-0.5s before firing (slows during aim, -10% accuracy if moving). |
-| **Accuracy** | hit% = 72 − distance × 1.8 (min 5%). At 5u = 63%, at 15u = 45%, at 25u = 27%. |
+| **Accuracy** | hit% = 68 − distance × 2.0 (min 5%). At 5u = 58%, at 15u = 38%, at 25u = 18%. |
 | **Reload** | 2s reload when magazine is empty. Draws from 100-round magazine. |
 | **Resupply** | Returns to nearest warehouse/police station when total ammo <30. Consumes up to 60 ammo from building. Also grabs food. |
 | **Sleep** | **None** — military stays active through the night. |
@@ -203,7 +203,7 @@ Blue dots on roofs = people currently occupying that building.
 |-----------|---------|
 | All civilians dead or turned, zombies still alive | 💀 Zombies win |
 | All civilians dead, zombies also eliminated | 💀 No survivors |
-| All zombies eliminated, at least one civilian alive, after Day 3 | 🎉 City saved |
+| All zombies eliminated, at least one civilian alive | 🎉 City saved (ends immediately) |
 
 ### Radio Broadcasts
 - **Normal** — HQ status reports, evacuation routes
@@ -237,7 +237,7 @@ Flat 0% when zombies ≤ 10.
 - Watch the first infection in slow-motion replay
 - **Zombies are slower than civilians** (2.0-3.0 vs 3.2-4.0). A civilian who spots danger early can always outrun
 - The chaos meter colour transitions from green → yellow → red as the outbreak escalates
-- Balance tuned to **~50/50 win/loss** (v4: no resist/HP, no bite cooldown, 8s delayed deployment, soldier overwhelm mechanic)
+- Balance tuned to **~50/50 win/loss** (instant win on last zombie death, no feeding pause, 12s delayed deployment, soldier overwhelm mechanic)
 - Forage cooldown prevents civilians camping in food stores — they have to rotate back to shelters
 
 ## 🛠️ Tech Stack

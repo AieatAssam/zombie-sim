@@ -118,7 +118,7 @@ export class Simulation {
 
   private outbreakPhase = 0;
   private lastPhaseCheck = 0;
-  private deploymentTimer = 8;
+  private deploymentTimer = 12;
   private radioTimer = 10;
   private nextSquadId = 1;
   private hordeCenters: { x: number; z: number; count: number }[] = [];
@@ -221,7 +221,7 @@ export class Simulation {
       wanderAngle: Math.random() * Math.PI * 2, aimTimer: 0,
       wanderTimer: Math.random() * 3, sleepTimer: 0, forageTimer: 0,
       buildingId: null, lastUpdateTime: 0,
-      speed: 2.0 + Math.random() * 1.0,
+      speed: 2.5 + Math.random() * 1.0,
       color: '#33ff33', isAsleep: false, isPanicking: false,
       panicTimer: 0, squadId: null, isSquadLeader: false, kills: 0, hideTimer: 0, biteAttempts: 0,
       zombieAge: 0, feedingTimer: 0, isAiming: false, alertTimer: 0, alertX: 0, alertZ: 0,
@@ -306,7 +306,7 @@ export class Simulation {
         if (e.turnTimer <= 0) {
           // Turn into zombie!
           e.type = 'zombie';
-          e.speed = 2.0 + Math.random() * 1.0;
+          e.speed = 2.5 + Math.random() * 1.0;
           e.color = '#33ff33';
           e.state = 'hunting';
           e.isAsleep = false;
@@ -395,7 +395,7 @@ export class Simulation {
       s.gameOver = true;
       s.gameOverReason = '💀 NO CIVILIANS SURVIVED.';
       this.logEvent('☠️ GAME OVER — No civilians remain.', 'death');
-    } else if (zomb <= 0 && civ > 0 && s.day > 5) {
+    } else if (zomb <= 0 && civ > 0) {
       s.gameOver = true;
       s.gameOverReason = '🎉 CITY SAVED! ZOMBIES ELIMINATED.';
       this.logEvent('✅ GAME OVER — Zombies eliminated! Civilians survive.', 'info');
@@ -946,8 +946,8 @@ export class Simulation {
           best.isPanicking = true;
           best.panicTimer = best.turnTimer + 2;
           e.biteAttempts++;
-          e.state = 'feeding';
-          e.feedingTimer = 0.5;
+          e.state = 'hunting';
+          e.targetId = null;
           this.alertNearbyZombies(e, best, 12);
           this.logEventThrottled(`Zombie bit civilian #${best.id}!`, 'zombie', 2);
         } else if (best.type === 'military') {
@@ -1108,7 +1108,7 @@ export class Simulation {
             e.ammoInMag -= 1; e.attackCooldown = 1.0; e.aimTimer = 0;
             const moving = Math.sqrt(e.vx * e.vx + e.vz * e.vz);
             const movePenalty = moving > 0.3 ? 10 : 0;
-            const hitChance = Math.max(5, Math.min(90, Math.floor(72 - d * 1.8 - movePenalty)));
+            const hitChance = Math.max(5, Math.min(88, Math.floor(68 - d * 2.0 - movePenalty)));
             const hit = Math.random() * 100 < hitChance;
             this.state.events.push({ time: this.state.totalTime, day: this.state.day, text: `SHOT:${hit?'HIT':'MISS'}:${e.x},${e.z},${nearZ.x},${nearZ.z}`, type: 'military' });
             for (const z of this.state.entities) { if (z.type === 'zombie' && z.state !== 'dead' && dist(e, z) < 25) { z.alertTimer = 5; z.alertX = e.x; z.alertZ = e.z; } }
