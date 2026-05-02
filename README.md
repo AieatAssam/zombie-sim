@@ -264,7 +264,7 @@ zombie-sim/
 
 ## 🧪 Testing
 ```bash
-npm test                  # Unit tests (15 simulation tests)
+npm test                  # Unit tests (23 simulation tests)
 npm run test:coverage     # With coverage report  
 ```
 
