@@ -88,6 +88,15 @@ export class Renderer3D {
   // Cached dot geometry for building occupant indicators (avoids per-frame alloc)
   private occupantDotGeom: THREE.BufferGeometry;
 
+  // Alert ring visual effects (expanding green ring pulses)
+  private alertRings: { mesh: THREE.Mesh; maxRadius: number; life: number; maxLife: number }[] = [];
+  // Ring geometry and material cache
+  private ringGeom: THREE.RingGeometry;
+  private ringMat: THREE.MeshBasicMaterial;
+
+  // Deployment drop effects
+  private deployDrops: { mesh: THREE.Mesh; targetY: number; speed: number; life: number }[] = [];
+
   // Track last processed event index to avoid re-processing tracers
   private lastProcessedEvents = 0;
 
@@ -280,6 +289,16 @@ export class Renderer3D {
     this.zombieGeom = new THREE.SphereGeometry(0.22, 10, 8);
     this.militaryGeom = new THREE.SphereGeometry(0.23, 10, 8);
     this.occupantDotGeom = new THREE.PlaneGeometry(0.5, 0.5, 2, 2);
+
+    // ─── Alert ring geometry ───
+    this.ringGeom = new THREE.RingGeometry(0.02, 0.08, 24);
+    this.ringMat = new THREE.MeshBasicMaterial({
+      color: 0x33ff33,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
 
     // ─── Particle system (effects) ───
     this.particleGeom = new THREE.BufferGeometry();
@@ -959,9 +978,22 @@ export class Renderer3D {
         if (parts.length === 2) {
           this.createCorpse(parts[0], parts[1]);
         }
+      } else if (ev.text.startsWith('ALERT_RING:')) {
+        const parts = ev.text.slice(11).split(',').map(Number);
+        if (parts.length === 3) {
+          this.spawnAlertRing(parts[0], parts[1], parts[2]);
+        }
+      } else if (ev.text.startsWith('DEPLOY:')) {
+        const parts = ev.text.slice(7).split(',').map(Number);
+        if (parts.length === 3) {
+          this.spawnDeployEffect(parts[0], parts[1], parts[2]);
+        }
       }
     }
     this.lastProcessedEvents = events.length;
+
+    // ─── Update alert rings ───
+    this.updateAlertRings(dt);
 
     // ─── Update tracers ───
     this.updateTracers(dt);
@@ -1071,6 +1103,17 @@ export class Renderer3D {
 
       const col = new THREE.Color(e.color);
 
+      // ─── Turn timer color interpolation (blue → green) ───
+      if (e.type === 'civilian' && e.turnTimer > 0) {
+        // turnTimer max is ~4 seconds. Interpolate based on remaining fraction.
+        // When just bitten (timer at max): mostly blue
+        // When about to turn (timer near 0): fully green
+        const timerFrac = Math.max(0, Math.min(1, e.turnTimer / 4.0));
+        const startColor = new THREE.Color(0x4499ff);
+        const endColor = new THREE.Color(0x33ff33);
+        col.lerpColors(startColor, endColor, 1 - timerFrac);
+      }
+
         // Update sphere colors and state indicators
       group.children.forEach(child => {
         if (child instanceof THREE.Mesh) {
@@ -1108,8 +1151,19 @@ export class Renderer3D {
                 mat.emissive.setHex(0xffaa00);
               }
             } else if (e.type === 'civilian') {
-              mat.emissive.setHex(0x4499ff);
-              mat.emissiveIntensity = 0.15;
+              // ─── Turn timer: increasing pulse speed as conversion nears ───
+              if (e.turnTimer > 0) {
+                const timerFrac = Math.max(0, Math.min(1, e.turnTimer / 4.0));
+                // Pulse speeds up as timer decreases (inverse relationship)
+                const pulseFreq = 3 + (1 - timerFrac) * 12; // 3 Hz at start, 15 Hz near end
+                const glowIntensity = 0.2 + (1 - timerFrac) * 1.5;
+                const pulse = glowIntensity * (0.6 + Math.sin(time * pulseFreq + e.id * 2) * 0.4);
+                mat.emissive.setHex(0x33ff33);
+                mat.emissiveIntensity = Math.max(0.1, pulse);
+              } else {
+                mat.emissive.setHex(0x4499ff);
+                mat.emissiveIntensity = 0.15;
+              }
             }
           }
         }
@@ -1124,6 +1178,25 @@ export class Renderer3D {
               bangMat.opacity = 0.5 + Math.sin(time * 5 + e.id * 2) * 0.4;
               const pulseScale = 0.8 + Math.sin(time * 6 + e.id * 3) * 0.15;
               child.scale.set(pulseScale * 0.35, pulseScale * 0.35, 1);
+            }
+          } else if (child.userData.isTurningSkull) {
+            // ☠ Skull appears above turning civilians
+            const isTurning = e.type === 'civilian' && e.turnTimer > 0;
+            child.visible = isTurning;
+            if (isTurning) {
+              const timerFrac = Math.max(0, Math.min(1, e.turnTimer / 4.0));
+              const skullMat = child.material as THREE.SpriteMaterial;
+              // Flash faster as conversion nears
+              const flashSpeed = 4 + (1 - timerFrac) * 8;
+              const flashAlpha = 0.4 + Math.sin(time * flashSpeed + e.id * 1.3) * 0.5;
+              skullMat.opacity = Math.max(0.1, flashAlpha);
+              // Scale up as conversion nears (urgency)
+              const urgencyScale = 0.8 + (1 - timerFrac) * 0.5;
+              const scale = 0.45 * urgencyScale;
+              child.scale.set(scale, scale, 1);
+              // Color shift from red to purple as conversion nears
+              const c = new THREE.Color(0xff4444).lerp(new THREE.Color(0xaa00ff), 1 - timerFrac);
+              skullMat.color.copy(c);
             }
           } else if (child.userData.isNoAmmo) {
             const isOut = e.ammoInMag <= 0 && e.ammo <= 0;
@@ -1179,6 +1252,34 @@ export class Renderer3D {
       body.castShadow = true;
       body.userData.isBody = true;
       group.add(body);
+
+      // ☠ Skull sprite for turning civilians (bitten, turnTimer > 0)
+      const skullCanvas = document.createElement('canvas');
+      skullCanvas.width = 64;
+      skullCanvas.height = 64;
+      const skullCtx = skullCanvas.getContext('2d')!;
+      skullCtx.fillStyle = '#aa00ff';
+      skullCtx.beginPath();
+      skullCtx.arc(32, 32, 28, 0, Math.PI * 2);
+      skullCtx.fill();
+      skullCtx.fillStyle = '#ffffff';
+      skullCtx.font = 'bold 28px sans-serif';
+      skullCtx.textAlign = 'center';
+      skullCtx.textBaseline = 'middle';
+      skullCtx.fillText('☠', 32, 34);
+      const skullTex = new THREE.CanvasTexture(skullCanvas);
+      const skullMat = new THREE.SpriteMaterial({
+        map: skullTex,
+        transparent: true,
+        depthTest: false,
+        sizeAttenuation: true,
+        opacity: 0,
+      });
+      const skullSprite = new THREE.Sprite(skullMat);
+      skullSprite.position.set(0, 0.65, 0);
+      skullSprite.scale.set(0.5, 0.5, 1);
+      skullSprite.userData.isTurningSkull = true;
+      group.add(skullSprite);
 
       // Pulsing red "!" sprite for starving civilians
       const bangCanvas = document.createElement('canvas');
@@ -1421,6 +1522,58 @@ export class Renderer3D {
     this.corpseTimers.push(18 + Math.random() * 4); // 18-22 seconds lifetime
   }
 
+  private spawnAlertRing(x: number, z: number, radius: number): void {
+    // Create a ring mesh at the alert point that will expand
+    const mesh = new THREE.Mesh(this.ringGeom, this.ringMat.clone());
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.15, z);
+    mesh.scale.set(0.01, 0.01, 0.01); // start tiny
+    mesh.userData.ringX = x;
+    mesh.userData.ringZ = z;
+    this.scene.add(mesh);
+    this.alertRings.push({
+      mesh,
+      maxRadius: radius,
+      life: 1.2,
+      maxLife: 1.2,
+    });
+  }
+
+  private updateAlertRings(dt: number): void {
+    for (let i = this.alertRings.length - 1; i >= 0; i--) {
+      const ring = this.alertRings[i];
+      ring.life -= dt;
+      if (ring.life <= 0) {
+        this.scene.remove(ring.mesh);
+        ring.mesh.geometry.dispose();
+        (ring.mesh.material as THREE.Material).dispose();
+        this.alertRings.splice(i, 1);
+        continue;
+      }
+      // Expand: scale grows from 0 to maxRadius over the ring's lifetime
+      const progress = 1 - ring.life / ring.maxLife;
+      // Base ring outer radius is 0.08, so scale by maxRadius / 0.08 to reach full size
+      const baseOuterRadius = 0.08;
+      const scale = progress * (ring.maxRadius / baseOuterRadius);
+      // Fade out over second half
+      const fadeProgress = Math.max(0, (progress - 0.4) / 0.6);
+      const mat = ring.mesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = (1 - fadeProgress) * 0.6;
+      // Slight wobble / throb
+      const wobbleScale = 1 + Math.sin(progress * Math.PI * 6) * 0.05;
+      ring.mesh.scale.set(scale * wobbleScale, scale * wobbleScale, scale * wobbleScale);
+    }
+  }
+
+  private spawnDeployEffect(x: number, z: number, count: number): void {
+    // Dust/smoke particle burst (brown puffs)
+    this.spawnParticleBurst(x, z, 0x8B7355, 15 + count * 5);
+    // Also spawn a few white/grey smoke puffs
+    this.spawnParticleBurst(x, z, 0xcccccc, 8 + count * 3);
+    // For increased drama, spawn a second burst slightly offset
+    this.spawnParticleBurst(x + (Math.random() - 0.5) * 2, z + (Math.random() - 0.5) * 2, 0x6B5B45, 5);
+  }
+
   reset(): void {
     for (const group of this.entityMeshes.values()) {
       this.scene.remove(group);
@@ -1445,6 +1598,22 @@ export class Renderer3D {
     }
 
     this.decalCount = 0;
+
+    // Clear alert rings
+    for (const ring of this.alertRings) {
+      this.scene.remove(ring.mesh);
+      ring.mesh.geometry.dispose();
+      (ring.mesh.material as THREE.Material).dispose();
+    }
+    this.alertRings = [];
+
+    // Clear deploy drops
+    for (const drop of this.deployDrops) {
+      this.scene.remove(drop.mesh);
+      drop.mesh.geometry.dispose();
+      (drop.mesh.material as THREE.Material).dispose();
+    }
+    this.deployDrops = [];
   }
 
   dispose(): void {

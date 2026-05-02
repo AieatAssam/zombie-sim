@@ -518,6 +518,16 @@ export class Simulation {
       }
       this.deploymentTimer = 2 + Math.random() * 2;
       this.logEvent(`🚁 ${toDeploy} soldier${toDeploy > 1 ? 's' : ''} deployed. (${currentMil + toDeploy} total)`, 'military');
+      // Emit visual DEPLOY event for renderer (first soldier's position)
+      const firstSoldier = s.entities[s.entities.length - toDeploy];
+      if (firstSoldier) {
+        this.state.events.push({
+          time: this.state.totalTime,
+          day: this.state.day,
+          text: `DEPLOY:${firstSoldier.x},${firstSoldier.z},${toDeploy}`,
+          type: 'military',
+        });
+      }
     }
   }
 
@@ -911,6 +921,13 @@ export class Simulation {
       if (z.id === src.id || z.type !== 'zombie' || z.state === 'dead') continue;
       if (dist(z, src) < range) { z.alertTimer = 4; z.alertX = target.x; z.alertZ = target.z; }
     }
+    // Emit visual ALERT_RING event for renderer
+    this.state.events.push({
+      time: this.state.totalTime,
+      day: this.state.day,
+      text: `ALERT_RING:${target.x},${target.z},${range}`,
+      type: 'warning',
+    });
   }
 
   // ─── MILITARY AI ───
@@ -999,13 +1016,33 @@ export class Simulation {
       if (!this.hasClearShot(e, nearZ) && d > 3) {
         const len = dist(e, nearZ) || 1; e.vx += ((nearZ.x - e.x) / len) * e.speed * 0.6 * dt; e.vz += ((nearZ.z - e.z) / len) * e.speed * 0.6 * dt; e.aimTimer = 0; return;
       }
-      if (d < 25 && e.attackCooldown <= 0) {
-        if (e.aimTimer <= 0 && e.ammoInMag > 0) { e.aimTimer = 0.3 + Math.random() * 0.3; e.vx *= 0.9; e.vz *= 0.9; }
+      // ─── Distance management: maintain 12-20 unit range ───
+      if (d < 8) {
+        // PANIC BACKUP — zombies too close
+        const len = dist(e, nearZ) || 1; e.aimTimer = 0;
+        e.vx += ((e.x - nearZ.x) / len) * e.speed * 1.2 * dt;
+        e.vz += ((e.z - nearZ.z) / len) * e.speed * 1.2 * dt;
+      } else if (d < 15) {
+        // Back up to preferred range
+        const len = dist(e, nearZ) || 1;
+        const urgency = (15 - d) / 15; // stronger push when closer
+        e.vx += ((e.x - nearZ.x) / len) * e.speed * urgency * 0.8 * dt;
+        e.vz += ((e.z - nearZ.z) / len) * e.speed * urgency * 0.8 * dt;
+      } else if (d > 22) {
+        // Advance slowly toward extreme range zombies
+        const len = dist(e, nearZ) || 1;
+        e.vx += ((nearZ.x - e.x) / len) * e.speed * 0.15 * dt;
+        e.vz += ((nearZ.z - e.z) / len) * e.speed * 0.15 * dt;
+      } // else: hold position at 15-22 units (ideal kill range)
+
+      // ─── Shoot while at range ───
+      if (d >= 8 && e.attackCooldown <= 0) {
+        if (e.aimTimer <= 0 && e.ammoInMag > 0) { e.aimTimer = 0.4 + Math.random() * 0.3; e.vx *= 0.85; e.vz *= 0.85; }
         if (e.aimTimer > 0) {
-          e.aimTimer -= dt; e.vx *= 0.88; e.vz *= 0.88;
+          e.aimTimer -= dt; e.vx *= 0.85; e.vz *= 0.85;
           if (e.aimTimer <= 0 && e.ammoInMag > 0) {
-            e.ammoInMag -= 1; e.attackCooldown = 1.0; e.aimTimer = 0;
-            const hitChance = Math.max(25, Math.min(95, Math.floor(85 - d * 1.0)));
+            e.ammoInMag -= 1; e.attackCooldown = 0.8; e.aimTimer = 0;
+            const hitChance = Math.max(20, Math.min(95, Math.floor(88 - d * 1.2)));
             const hit = Math.random() * 100 < hitChance;
             this.state.events.push({ time: this.state.totalTime, day: this.state.day, text: `SHOT:${hit?'HIT':'MISS'}:${e.x},${e.z},${nearZ.x},${nearZ.z}`, type: 'military' });
             for (const z of this.state.entities) { if (z.type === 'zombie' && z.state !== 'dead' && dist(e, z) < 25) { z.alertTimer = 5; z.alertX = e.x; z.alertZ = e.z; } }
@@ -1013,9 +1050,6 @@ export class Simulation {
           }
         }
       }
-      if (d < 6) { const len = dist(e, nearZ) || 1; e.vx += ((e.x - nearZ.x) / len) * e.speed * 0.8 * dt; e.vz += ((e.z - nearZ.z) / len) * e.speed * 0.8 * dt; }
-      else if (d < 10) { const len = dist(e, nearZ) || 1; const u = (12 - d) / 12; e.vx += ((e.x - nearZ.x) / len) * e.speed * u * 1.0 * dt; e.vz += ((e.z - nearZ.z) / len) * e.speed * u * 0.6 * dt; }
-      else if (d > 15) { const len = dist(e, nearZ) || 1; e.vx += ((nearZ.x - e.x) / len) * e.speed * 0.3 * dt; e.vz += ((nearZ.z - e.z) / len) * e.speed * 0.3 * dt; }
       if (e.squadId !== null) { for (const m of this.state.entities) { if (m.id !== e.id && m.squadId === e.squadId && m.state !== 'dead' && (m.state === 'patrolling' || m.state === 'wandering')) m.state = 'engaging'; } }
       return;
     }
