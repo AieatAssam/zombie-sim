@@ -122,18 +122,12 @@ describe('Simulation v4', () => {
   });
 
   describe('Military Deployment', () => {
-    it('should NOT deploy military early', () => {
-      // Military needs 4+ infections AND time > 8s
-      // At 6 seconds, even with bites, turn timer hasn't completed yet
-      advance(sim, 6, 1);
-      expect(sim.state.stats.military).toBe(0);
-    });
-
     it('should deploy military after enough infections', () => {
-      // Directly set infected count past threshold, with time past delay
-      sim.state.stats.civiliansTurned = 5;
-      sim.state.stats.totalInfected = 5;
-      sim.state.totalTime = 10;
+      // Military deploys when infections >= 1 AND time > 3s
+      // Set infections and advance past time threshold
+      sim.state.stats.civiliansTurned = 2;
+      sim.state.stats.totalInfected = 2;
+      sim.state.totalTime = 5;
       
       let deployed = false;
       for (let t = 0; t < 30; t++) {
