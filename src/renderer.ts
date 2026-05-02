@@ -1103,15 +1103,14 @@ export class Renderer3D {
 
       const col = new THREE.Color(e.color);
 
-      // ─── Turn timer color interpolation (blue → green) ───
+      // ─── Turn timer color interpolation (blue → green) + green mist particles ───
       if (e.type === 'civilian' && e.turnTimer > 0) {
-        // turnTimer max is ~4 seconds. Interpolate based on remaining fraction.
-        // When just bitten (timer at max): mostly blue
-        // When about to turn (timer near 0): fully green
-        const timerFrac = Math.max(0, Math.min(1, e.turnTimer / 4.0));
+        const timerFrac = Math.max(0, Math.min(1, e.turnTimer / 10.0));
         const startColor = new THREE.Color(0x4499ff);
         const endColor = new THREE.Color(0x33ff33);
         col.lerpColors(startColor, endColor, 1 - timerFrac);
+        // Emit a small green mist particle each frame while turning
+        this.emitInfectionParticle(e.x, e.z, timerFrac);
       }
 
         // Update sphere colors and state indicators
@@ -1428,6 +1427,29 @@ export class Renderer3D {
         life: 0.5 + Math.random() * 1.2,
         maxLife: 1.5,
         r: col.r, g: col.g, b: col.b,
+      };
+      this.particleIdx++;
+    }
+  }
+
+  private emitInfectionParticle(x: number, z: number, timerFrac: number): void {
+    // Spawn 1-2 small green mist particles per frame around turning civilians
+    // Rate increases as conversion nears (more particles when almost turned)
+    const count = timerFrac < 0.3 ? 2 : 1;
+    const col = new THREE.Color(0x33ff33);
+    for (let p = 0; p < count; p++) {
+      const idx = this.particleIdx % this.particleData.length;
+      this.particlePositions[idx * 3] = x + (Math.random() - 0.5) * 0.6;
+      this.particlePositions[idx * 3 + 1] = 0.3 + Math.random() * 0.4;
+      this.particlePositions[idx * 3 + 2] = z + (Math.random() - 0.5) * 0.6;
+      this.particleData[idx] = {
+        vx: (Math.random() - 0.5) * 0.8,
+        vz: (Math.random() - 0.5) * 0.8,
+        life: 0.8 + Math.random() * 1.0,
+        maxLife: 1.5,
+        r: col.r * 0.7,
+        g: col.g,
+        b: col.b * 0.4,
       };
       this.particleIdx++;
     }
