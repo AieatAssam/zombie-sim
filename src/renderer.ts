@@ -315,7 +315,7 @@ export class Renderer3D {
     this.civilianHeadGeom = null as any;  // No separate head - just one sphere
     this.zombieGeom = new THREE.SphereGeometry(0.22, 10, 8);
     this.militaryGeom = new THREE.SphereGeometry(0.23, 10, 8);
-    this.occupantDotGeom = new THREE.PlaneGeometry(0.5, 0.5, 2, 2);
+    this.occupantDotGeom = new THREE.PlaneGeometry(1.0, 1.0, 2, 2);
 
     // ─── Alert ring geometry ───
     this.ringGeom = new THREE.RingGeometry(0.02, 0.08, 24);
@@ -541,6 +541,22 @@ export class Renderer3D {
 
     // Buildings
     for (const b of state.buildings) {
+      // Destroyed building: render as low grey rubble pile
+      if (b.destroyed) {
+        const rubbleMat = new THREE.MeshStandardMaterial({
+          color: 0x555555,
+          roughness: 1.0,
+          metalness: 0.0,
+        });
+        const rubble = new THREE.Mesh(new THREE.BoxGeometry(b.w * 0.8, 0.3, b.d * 0.8), rubbleMat);
+        rubble.position.set(b.x, 0.15, b.z);
+        rubble.castShadow = true;
+        rubble.receiveShadow = true;
+        this.scene.add(rubble);
+        this.buildingMeshes.push(rubble);
+        continue;
+      }
+
       const col = new THREE.Color(b.color);
       // Subtle color variation per building of same type (±10%)
       const variation = 0.9 + Math.random() * 0.2;
@@ -1054,6 +1070,64 @@ export class Renderer3D {
         if (parts.length === 4) {
           this.startHelicopterFlyover(parts[0], parts[1], parts[2], parts[3]);
         }
+      } else if (ev.text.startsWith('BUILDING_DESTROYED:')) {
+        const bId = parseInt(ev.text.slice(18), 10);
+        // Find and replace the building mesh with rubble
+        const b = state.buildings.find(bd => bd.id === bId);
+        if (b) {
+          // Find and remove meshes for this building (they're stored in this.buildingMeshes)
+          const toRemove: THREE.Mesh[] = [];
+          const toKeep: THREE.Mesh[] = [];
+          for (const m of this.buildingMeshes) {
+            if (m.userData.buildingId === bId) {
+              toRemove.push(m);
+            } else {
+              toKeep.push(m);
+            }
+          }
+          for (const m of toRemove) {
+            this.scene.remove(m);
+            m.geometry.dispose();
+            (m.material as THREE.Material).dispose();
+          }
+          this.buildingMeshes = toKeep;
+          // Add rubble
+          const rubbleMat = new THREE.MeshStandardMaterial({
+            color: 0x555555,
+            roughness: 1.0,
+            metalness: 0.0,
+          });
+          const rubble = new THREE.Mesh(new THREE.BoxGeometry(b.w * 0.8, 0.3, b.d * 0.8), rubbleMat);
+          rubble.position.set(b.x, 0.15, b.z);
+          rubble.castShadow = true;
+          rubble.receiveShadow = true;
+          this.scene.add(rubble);
+          this.buildingMeshes.push(rubble);
+          // Clean up occupant dots for this building
+          const occDots = this.buildingOccupantDots.get(bId);
+          if (occDots) {
+            for (const m of occDots) {
+              this.scene.remove(m);
+              m.geometry.dispose();
+              (m.material as THREE.Material).dispose();
+            }
+            this.buildingOccupantDots.delete(bId);
+          }
+          // Also remove related window glows and extra parts for this building
+          const wgToRemove: typeof this.windowGlows = [];
+          for (const wg of this.windowGlows) {
+            if (wg.buildingId === bId) {
+              this.scene.remove(wg.mesh);
+              wg.mesh.geometry.dispose();
+              (wg.mesh.material as THREE.Material).dispose();
+              wgToRemove.push(wg);
+            }
+          }
+          this.windowGlows = this.windowGlows.filter(wg => wg.buildingId !== bId);
+          // Debris cleanup at position
+          this.spawnParticleBurst(b.x, b.z, 0x888888, 15);
+          this.spawnParticleBurst(b.x, b.z, 0x555555, 10);
+        }
       }
     }
     this.lastProcessedEvents = events.length;
@@ -1128,7 +1202,7 @@ export class Renderer3D {
         }
       }
 
-      // Create fresh dots every time
+      // Create fresh dots every time — bigger, brighter, more visible
       const dots: THREE.Mesh[] = [];
       const startX = -((cols - 1) * spacing) / 2;
       const startZ = -((rows - 1) * spacing) / 2;
@@ -1136,11 +1210,10 @@ export class Renderer3D {
       for (let i = 0; i < dotCount; i++) {
         const col = i % cols;
         const row = Math.floor(i / cols);
-        const brightness = 0.6 + (i / dotCount) * 0.4;
         const mat = new THREE.MeshBasicMaterial({
-          color: new THREE.Color(0.2, 0.5 + brightness * 0.4, 0.8),
+          color: 0xffffff,
           transparent: true,
-          opacity: 0.9,
+          opacity: 0.95,
           depthWrite: false,
           side: THREE.DoubleSide,
         });
@@ -1150,6 +1223,33 @@ export class Renderer3D {
         this.scene.add(dot);
         dots.push(dot);
       }
+
+      // Add a count label sprite above the building
+      const countCanvas = document.createElement('canvas');
+      countCanvas.width = 128;
+      countCanvas.height = 64;
+      const ctx = countCanvas.getContext('2d')!;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(0, 0, 128, 64);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 32px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${count}`, 64, 34);
+      const tex = new THREE.CanvasTexture(countCanvas);
+      const labelMat = new THREE.SpriteMaterial({
+        map: tex,
+        transparent: true,
+        depthTest: false,
+        sizeAttenuation: true,
+      });
+      const label = new THREE.Sprite(labelMat);
+      label.position.set(b.x, b.h + 1.5, b.z);
+      label.scale.set(1.5, 0.75, 1);
+      label.userData.isOccupantLabel = true;
+      this.scene.add(label);
+      dots.push(label as unknown as THREE.Mesh);
+
       this.buildingOccupantDots.set(bId, dots);
     }
   }

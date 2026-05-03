@@ -11,6 +11,7 @@ export interface Building {
   color: string;
   food: number;
   ammo: number;
+  destroyed: boolean;
 }
 
 export interface WorldMap {
@@ -140,6 +141,7 @@ export function generateWorld(seed: number = Date.now()): WorldMap {
         color: COLORS[bType],
         food,
         ammo,
+        destroyed: false,
       });
     }
   }
@@ -187,6 +189,7 @@ export function isInsideBuilding(
   margin: number = 0.3
 ): Building | null {
   for (const b of buildings) {
+    if (b.destroyed) continue;
     const hw = b.w / 2 + margin;
     const hd = b.d / 2 + margin;
     if (Math.abs(b.x - x) < hw && Math.abs(b.z - z) < hd) return b;

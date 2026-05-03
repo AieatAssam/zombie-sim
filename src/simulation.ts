@@ -59,6 +59,7 @@ export interface Entity {
   sprintTimer: number;
   sprintCooldown: number;
   maxSprintTime: number;
+  lastCombatTime: number;
 }
 
 export interface SimulationState {
@@ -422,6 +423,7 @@ function createEntity(
     turnTimer: 0,
     sprintTimer: 0,
     sprintCooldown: 0,
+    lastCombatTime: -999,
     ...config,
   };
 }
@@ -445,6 +447,7 @@ export class Simulation {
   private deploymentTimer = DEPLOYMENT_TIMER;
   private radioTimer = RADIO_TIMER_INITIAL;
   private nextSquadId = 1;
+  private buildingDamage: Map<number, number> = new Map();
   private hordeCenters: { x: number; z: number; count: number }[] = [];
   private lastHordeSurgeLevel = 0;
   private fireTimers: Map<number, { x: number; z: number; timeLeft: number }> = new Map();
@@ -581,6 +584,7 @@ export class Simulation {
     this.state = this.createInitialState(this.map);
     this.nextSquadId = 1;
     this.radioTimer = RADIO_TIMER_INITIAL;
+    this.buildingDamage.clear();
     this.perimeterTimer = 10 + Math.random() * 5;
     this.logEvent('🔄 New city generated. Outbreak unfolding...', 'warning');
     this.logEvent('🏙️ Population: 400. Good luck.', 'info');
@@ -1273,12 +1277,12 @@ export class Simulation {
     const jitter = (Math.random() - 0.5) * 1.2;
     const mul = e.sprintTimer > 0 ? CIVILIAN_SPRINT_FLEE_MULTIPLIER : CIVILIAN_SPRINT_NORMAL_MULTIPLIER;
     const spd = e.speed * mul;
-    e.vx += Math.cos(fleeAngle + jitter) * spd * dt * 0.5;
-    e.vz += Math.sin(fleeAngle + jitter) * spd * dt * 0.5;
+    e.vx += Math.cos(fleeAngle + jitter) * spd * dt * 0.7;
+    e.vz += Math.sin(fleeAngle + jitter) * spd * dt * 0.7;
 
     e.panicTimer -= dt;
-    const zFar = this.findNearest(e, 18, 'zombie');
-    if (e.panicTimer <= 0 && (!zFar || dist(e, zFar) > 18)) {
+    const zFar = this.findNearest(e, 25, 'zombie');
+    if (e.panicTimer <= 0 && (!zFar || dist(e, zFar) > 25)) {
       e.isPanicking = false;
       e.state = 'wandering';
     }
@@ -1624,6 +1628,21 @@ export class Simulation {
       this.fireTimers.set(b.id, { x: b.x, z: b.z, timeLeft: 60 });
       this.pushEvent(`FIRE_START:${b.x},${b.z}`, 'warning');
     }
+
+    // Building destruction tracking
+    const breaches = (this.buildingDamage.get(b.id) || 0) + 1;
+    this.buildingDamage.set(b.id, breaches);
+    if (breaches >= 3) {
+      b.destroyed = true;
+      b.h = 0.2;
+      b.color = '#444444';
+      b.food = 0;
+      b.ammo = 0;
+      this.pushEvent(`BUILDING_DESTROYED:${b.id}`, 'warning');
+      this.logEvent(`🏚️ Building #${b.id} has been completely destroyed!`, 'zombie');
+      // Stop any fire on this building
+      this.fireTimers.delete(b.id);
+    }
   }
 
   private attackOrPursueZombie(e: Entity, best: Entity, d: number, dt: number, nightMul: number): void {
@@ -1715,8 +1734,10 @@ export class Simulation {
     // Squad cohesion
     this.applySquadCohesion(e, dt);
 
-    // Combat or patrol
-    const nearZ = this.findNearest(e, MILITARY_ENGAGE_RANGE, 'zombie');
+    // Extended combat search for soldiers who recently fought
+    const recentlyInCombat = (this.state.totalTime - e.lastCombatTime) < 5;
+    const searchRange = recentlyInCombat ? 30 : MILITARY_ENGAGE_RANGE;
+    const nearZ = this.findNearest(e, searchRange, 'zombie');
     if (nearZ) {
       this.handleMilitaryCombat(e, nearZ, dt);
     } else {
@@ -1793,6 +1814,9 @@ export class Simulation {
 
   private handleMilitaryHunger(e: Entity, dt: number): void {
     if (e.hunger < STARVING_THRESHOLD) {
+      // Don't go foraging for food if zombies are nearby
+      const nearZ = this.findNearest(e, 15, 'zombie');
+      if (nearZ) return;
       const tb = findNearestBuilding(this.state.buildings, e.x, e.z);
       if (tb && dist(e, tb) < 1.5) {
         const g = Math.min(tb.food, SOLDIER_HUNGER_FOOD_TAKE);
@@ -1842,6 +1866,7 @@ export class Simulation {
 
   private handleMilitaryCombat(e: Entity, nearZ: Entity, dt: number): void {
     e.state = 'engaging';
+    e.lastCombatTime = this.state.totalTime;
     const d = dist(e, nearZ);
 
     // Distance management: retreat from overwhelming zombies
@@ -1966,6 +1991,13 @@ export class Simulation {
           } else {
             if (dz > 0) { e.z = b.z + hd; e.vz = Math.max(e.vz, 0.1); }
             else { e.z = b.z - hd; e.vz = Math.min(e.vz, -0.1); }
+          }
+          // Random lateral slide along wall to prevent clumping
+          const slideAmount = (Math.random() - 0.5) * 1.0;
+          if (Math.abs(dx) > Math.abs(dz)) {
+            e.z += slideAmount;
+          } else {
+            e.x += slideAmount;
           }
         } else {
           e.buildingId = b.id;
