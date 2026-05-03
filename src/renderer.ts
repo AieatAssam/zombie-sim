@@ -97,8 +97,35 @@ export class Renderer3D {
   // Deployment drop effects
   private deployDrops: { mesh: THREE.Mesh; targetY: number; speed: number; life: number }[] = [];
 
+  // Supply crate meshes
+  private supplyCrateMeshes: THREE.Object3D[] = [];
+  private supplyCrateGlows: THREE.Mesh[] = [];
+
   // Track last processed event index to avoid re-processing tracers
   private lastProcessedEvents = 0;
+
+  // Horde surge shockwaves (expanding red rings)
+  private hordeSurges: { mesh: THREE.Mesh; maxRadius: number; life: number; maxLife: number }[] = [];
+  private hordeSurgeGeom: THREE.RingGeometry;
+  private hordeSurgeMat: THREE.MeshBasicMaterial;
+
+  // Building fire positions that continuously emit particles
+  private buildingFires: { x: number; z: number; buildingId: number; timeLeft: number }[] = [];
+
+  // Helicopter flyover
+  private helicopterGroup: THREE.Group | null = null;
+  private helicopterActive = false;
+  private helicopterSx = 0; private helicopterSz = 0;
+  private helicopterEx = 0; private helicopterEz = 0;
+  private helicopterX = 0; private helicopterZ = 0;
+  private helicopterProgress = 0;
+  private helicopterTimer = 40 + Math.random() * 30;
+  private helicopterFlightTime = 0;
+  private helicopterStartRealTime = 0;
+  // Helicopter shadow
+  private helicopterShadow: THREE.Mesh | null = null;
+  // Helicopter particle trail
+  private helicopterTrailActive = false;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -296,6 +323,16 @@ export class Renderer3D {
       color: 0x33ff33,
       transparent: true,
       opacity: 0.6,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+
+    // ─── Horde surge shockwave geometry ───
+    this.hordeSurgeGeom = new THREE.RingGeometry(0.05, 0.18, 32);
+    this.hordeSurgeMat = new THREE.MeshBasicMaterial({
+      color: 0xff0000,
+      transparent: true,
+      opacity: 0.8,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
@@ -993,12 +1030,58 @@ export class Renderer3D {
         if (parts.length === 2) {
           this.spawnBreachFire(parts[0], parts[1]);
         }
+      } else if (ev.text.startsWith('HORDE_SURGE:')) {
+        const parts = ev.text.slice(12).split(',').map(Number);
+        if (parts.length === 3) {
+          this.spawnHordeSurge(parts[0], parts[1], parts[2]);
+        }
+      } else if (ev.text.startsWith('FIRE_START:')) {
+        const parts = ev.text.slice(11).split(',').map(Number);
+        if (parts.length === 2) {
+          // Check if this fire is already tracked
+          const existing = this.buildingFires.find(f => Math.abs(f.x - parts[0]) < 0.1 && Math.abs(f.z - parts[1]) < 0.1);
+          if (!existing) {
+            this.buildingFires.push({ x: parts[0], z: parts[1], buildingId: this.buildingFires.length, timeLeft: 60 });
+          }
+        }
+      } else if (ev.text.startsWith('FIRE_STOP:')) {
+        const parts = ev.text.slice(10).split(',').map(Number);
+        if (parts.length === 2) {
+          this.buildingFires = this.buildingFires.filter(f => !(Math.abs(f.x - parts[0]) < 0.1 && Math.abs(f.z - parts[1]) < 0.1));
+        }
+      } else if (ev.text.startsWith('HELICOPTER:')) {
+        const parts = ev.text.slice(11).split(',').map(Number);
+        if (parts.length === 4) {
+          this.startHelicopterFlyover(parts[0], parts[1], parts[2], parts[3]);
+        }
       }
     }
     this.lastProcessedEvents = events.length;
 
+    // ─── Helicopter trail particles ───
+    if (this.helicopterActive) {
+      this.updateHelicopterVisual(dt);
+    }
+
+    // ─── Continuous building fire particles ───
+    for (const fire of this.buildingFires) {
+      fire.timeLeft -= dt;
+      if (fire.timeLeft > 0) {
+        // Continuous fire/smoke particles
+        this.spawnParticleBurst(fire.x, fire.z, 0xff4400, 2);
+        this.spawnParticleBurst(fire.x, fire.z, 0x888800, 1);
+        this.spawnParticleBurst(fire.x + (Math.random() - 0.5) * 2, fire.z + (Math.random() - 0.5) * 2, 0x333333, 1);
+      }
+    }
+
+    // ─── Update supply crates ───
+    this.updateSupplyCrates(state);
+
     // ─── Update alert rings ───
     this.updateAlertRings(dt);
+
+    // ─── Update horde surges ───
+    this.updateHordeSurges(dt);
 
     // ─── Update tracers ───
     this.updateTracers(dt);
@@ -1174,7 +1257,26 @@ export class Renderer3D {
 
         // ─── Sprite-based indicators ───
         if (child instanceof THREE.Sprite) {
-          if (child.userData.isStarvingBang) {
+          // Hero star — golden ★ for longest-surviving civilian
+          if (child.userData.isHeroStar) {
+            const isHero = e.type === 'civilian' && state.heroId === e.id;
+            child.visible = isHero;
+            if (isHero) {
+              const heroMat = child.material as THREE.SpriteMaterial;
+              heroMat.opacity = 0.8 + Math.sin(time * 3 + e.id) * 0.2;
+              const pulseScale = 0.5 + Math.sin(time * 4 + e.id * 2) * 0.05;
+              child.scale.set(pulseScale, pulseScale, 1);
+            }
+          } else if (child.userData.isAlphaCrown) {
+            const isAlpha = e.type === 'zombie' && state.alphaId === e.id;
+            child.visible = isAlpha;
+            if (isAlpha) {
+              const alphaMat = child.material as THREE.SpriteMaterial;
+              alphaMat.opacity = 0.7 + Math.sin(time * 2.5 + e.id) * 0.3;
+              const pulseScale = 0.5 + Math.sin(time * 3 + e.id * 1.5) * 0.05;
+              child.scale.set(pulseScale, pulseScale, 1);
+            }
+          } else if (child.userData.isStarvingBang) {
             const isStarving = e.state === 'starving';
             child.visible = isStarving;
             if (isStarving) {
@@ -1314,6 +1416,36 @@ export class Renderer3D {
       bangSprite.userData.isStarving = true;
       group.add(bangSprite);
 
+      // ⭐ Golden star sprite for hero civilian
+      const starCanvas = document.createElement('canvas');
+      starCanvas.width = 64;
+      starCanvas.height = 64;
+      const starCtx = starCanvas.getContext('2d')!;
+      starCtx.fillStyle = 'rgba(0,0,0,0)';
+      starCtx.fillRect(0, 0, 64, 64);
+      starCtx.fillStyle = '#ffd700';
+      starCtx.beginPath();
+      starCtx.arc(32, 32, 28, 0, Math.PI * 2);
+      starCtx.fill();
+      starCtx.fillStyle = '#000000';
+      starCtx.font = 'bold 30px sans-serif';
+      starCtx.textAlign = 'center';
+      starCtx.textBaseline = 'middle';
+      starCtx.fillText('★', 32, 34);
+      const starTex = new THREE.CanvasTexture(starCanvas);
+      const starMat = new THREE.SpriteMaterial({
+        map: starTex,
+        transparent: true,
+        depthTest: false,
+        sizeAttenuation: true,
+        opacity: 0,
+      });
+      const starSprite = new THREE.Sprite(starMat);
+      starSprite.position.set(0, 0.8, 0);
+      starSprite.scale.set(0.5, 0.5, 1);
+      starSprite.userData.isHeroStar = true;
+      group.add(starSprite);
+
     } else if (e.type === 'zombie') {
       // Green sphere with strong emissive for bloom
       const bodyMat = new THREE.MeshStandardMaterial({
@@ -1328,6 +1460,36 @@ export class Renderer3D {
       body.castShadow = true;
       body.userData.isBody = true;
       group.add(body);
+
+      // 👑 Red crown sprite for alpha zombie
+      const crownCanvas = document.createElement('canvas');
+      crownCanvas.width = 64;
+      crownCanvas.height = 64;
+      const crownCtx = crownCanvas.getContext('2d')!;
+      crownCtx.fillStyle = 'rgba(0,0,0,0)';
+      crownCtx.fillRect(0, 0, 64, 64);
+      crownCtx.fillStyle = '#cc0000';
+      crownCtx.beginPath();
+      crownCtx.arc(32, 32, 28, 0, Math.PI * 2);
+      crownCtx.fill();
+      crownCtx.fillStyle = '#ffffff';
+      crownCtx.font = 'bold 28px sans-serif';
+      crownCtx.textAlign = 'center';
+      crownCtx.textBaseline = 'middle';
+      crownCtx.fillText('👑', 32, 34);
+      const crownTex = new THREE.CanvasTexture(crownCanvas);
+      const crownMat = new THREE.SpriteMaterial({
+        map: crownTex,
+        transparent: true,
+        depthTest: false,
+        sizeAttenuation: true,
+        opacity: 0,
+      });
+      const crownSprite = new THREE.Sprite(crownMat);
+      crownSprite.position.set(0, 0.8, 0);
+      crownSprite.scale.set(0.5, 0.5, 1);
+      crownSprite.userData.isAlphaCrown = true;
+      group.add(crownSprite);
 
     } else if (e.type === 'military') {
       // Red sphere with slight emissive
@@ -1566,6 +1728,93 @@ export class Renderer3D {
     });
   }
 
+  private updateSupplyCrates(state: SimulationState): void {
+    // Remove old supply crate meshes
+    for (const m of this.supplyCrateMeshes) {
+      this.scene.remove(m);
+      if (m instanceof THREE.Mesh || m instanceof THREE.Line) {
+        m.geometry.dispose();
+        (m.material as THREE.Material).dispose();
+      }
+    }
+    for (const m of this.supplyCrateGlows) {
+      this.scene.remove(m);
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    this.supplyCrateMeshes = [];
+    this.supplyCrateGlows = [];
+
+    for (const crate of state.supplyCrates) {
+      if (!crate.active) continue;
+
+      // Parachute box - small cube
+      const boxMat = new THREE.MeshStandardMaterial({
+        color: 0xcc8844,
+        roughness: 0.6,
+        metalness: 0.3,
+        emissive: 0xcc8844,
+        emissiveIntensity: 0.3,
+      });
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), boxMat);
+      box.position.set(crate.x, 0.7, crate.z);
+      box.castShadow = true;
+      this.scene.add(box);
+      this.supplyCrateMeshes.push(box);
+
+      // Orange glow ring on ground
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: 0xff8800,
+        transparent: true,
+        opacity: 0.3,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const glow = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.8, 16), glowMat);
+      glow.rotation.x = -Math.PI / 2;
+      glow.position.set(crate.x, 0.02, crate.z);
+      this.scene.add(glow);
+      this.supplyCrateGlows.push(glow);
+
+      // Parachute lines (thin lines upward)
+      const lineMat = new THREE.LineBasicMaterial({
+        color: 0xcccccc,
+        transparent: true,
+        opacity: 0.4,
+      });
+      // Four lines from box corners to a point above
+      const topY = 2.5;
+      const offsets = [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]];
+      for (const [ox, oz] of offsets) {
+        const pts = [
+          new THREE.Vector3(crate.x + ox, 0.5, crate.z + oz),
+          new THREE.Vector3(crate.x, topY, crate.z),
+        ];
+        const g = new THREE.BufferGeometry().setFromPoints(pts);
+        const line = new THREE.Line(g, lineMat);
+        this.scene.add(line);
+        this.supplyCrateMeshes.push(line);
+      }
+
+      // Parachute canopy (small dome)
+      const canopyMat = new THREE.MeshBasicMaterial({
+        color: 0xdddddd,
+        transparent: true,
+        opacity: 0.5,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const canopy = new THREE.Mesh(
+        new THREE.SphereGeometry(0.6, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+        canopyMat
+      );
+      canopy.position.set(crate.x, 2.5, crate.z);
+      canopy.rotation.x = Math.PI;
+      this.scene.add(canopy);
+      this.supplyCrateGlows.push(canopy);
+    }
+  }
+
   private updateAlertRings(dt: number): void {
     for (let i = this.alertRings.length - 1; i >= 0; i--) {
       const ring = this.alertRings[i];
@@ -1610,6 +1859,179 @@ export class Renderer3D {
     this.spawnParticleBurst(x, z, 0x333355, 5); // thin grey wisps
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  FEATURE: HORDE SURGE SHOCKWAVE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private spawnHordeSurge(x: number, z: number, radius: number): void {
+    const mesh = new THREE.Mesh(this.hordeSurgeGeom, this.hordeSurgeMat.clone());
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.2, z);
+    mesh.scale.set(0.01, 0.01, 0.01);
+    this.scene.add(mesh);
+    this.hordeSurges.push({
+      mesh,
+      maxRadius: radius,
+      life: 2.0,
+      maxLife: 2.0,
+    });
+    // Also emit dramatic red particles at the center
+    this.spawnParticleBurst(x, z, 0xff0000, 15);
+    this.spawnParticleBurst(x, z, 0xff4400, 10);
+  }
+
+  private updateHordeSurges(dt: number): void {
+    for (let i = this.hordeSurges.length - 1; i >= 0; i--) {
+      const surge = this.hordeSurges[i];
+      surge.life -= dt;
+      if (surge.life <= 0) {
+        this.scene.remove(surge.mesh);
+        surge.mesh.geometry.dispose();
+        (surge.mesh.material as THREE.Material).dispose();
+        this.hordeSurges.splice(i, 1);
+        continue;
+      }
+      const progress = 1 - surge.life / surge.maxLife;
+      const baseOuterRadius = 0.18;
+      const scale = Math.min(progress * (surge.maxRadius / baseOuterRadius), surge.maxRadius / baseOuterRadius);
+      // Fade out over last 40%
+      const fadeProgress = Math.max(0, (progress - 0.6) / 0.4);
+      const mat = surge.mesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = (1 - fadeProgress) * 0.8;
+      // Throb effect
+      const wobbleScale = 1 + Math.sin(progress * Math.PI * 8) * 0.1;
+      surge.mesh.scale.set(scale * wobbleScale, scale * wobbleScale, scale * wobbleScale);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  FEATURE: HELICOPTER FLYOVER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private createHelicopter(): THREE.Group {
+    const group = new THREE.Group();
+    group.userData.isHelicopter = true;
+
+    // Body: dark grey box
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x333344, roughness: 0.6, metalness: 0.5 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.15, 0.4), bodyMat);
+    body.castShadow = true;
+    group.add(body);
+
+    // Tail: thinner box behind
+    const tailMat = new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.6, metalness: 0.4 });
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.2), tailMat);
+    tail.position.set(-0.5, 0, 0);
+    group.add(tail);
+
+    // Main rotor (horizontal blade)
+    const rotorMat = new THREE.MeshBasicMaterial({ color: 0x555566, transparent: true, opacity: 0.6 });
+    const rotor = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.02, 0.08), rotorMat);
+    rotor.position.set(0, 0.2, 0);
+    rotor.userData.isRotor = true;
+    group.add(rotor);
+
+    // Cockpit window (small translucent blue)
+    const cockpitMat = new THREE.MeshBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0.4 });
+    const cockpit = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.08, 0.2), cockpitMat);
+    cockpit.position.set(0.35, 0.08, 0);
+    group.add(cockpit);
+
+    return group;
+  }
+
+  startHelicopterFlyover(sx: number, sz: number, ex: number, ez: number): void {
+    if (!this.helicopterGroup) {
+      this.helicopterGroup = this.createHelicopter();
+      this.scene.add(this.helicopterGroup);
+
+      // Shadow circle on ground
+      const shadowMat = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.15,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      this.helicopterShadow = new THREE.Mesh(
+        new THREE.CircleGeometry(2.5, 16),
+        shadowMat
+      );
+      this.helicopterShadow.rotation.x = -Math.PI / 2;
+      this.helicopterShadow.position.y = 0.05;
+      this.scene.add(this.helicopterShadow);
+    }
+
+    this.helicopterActive = true;
+    this.helicopterSx = sx;
+    this.helicopterSz = sz;
+    this.helicopterEx = ex;
+    this.helicopterEz = ez;
+    this.helicopterProgress = 0;
+    this.helicopterFlightTime = 0;
+  }
+
+  private updateHelicopterVisual(dt: number): void {
+    if (!this.helicopterGroup || !this.helicopterActive) {
+      // Still visible but not flying - hide after timeout
+      if (this.helicopterGroup && !this.helicopterActive) {
+        this.helicopterTrailActive = false;
+        this.helicopterGroup.visible = false;
+        if (this.helicopterShadow) this.helicopterShadow.visible = false;
+      }
+      return;
+    }
+
+    this.helicopterFlightTime += dt;
+    this.helicopterProgress = Math.min(1, this.helicopterFlightTime / 8);
+
+    // Position
+    this.helicopterX = this.helicopterSx + (this.helicopterEx - this.helicopterSx) * this.helicopterProgress;
+    this.helicopterZ = this.helicopterSz + (this.helicopterEz - this.helicopterSz) * this.helicopterProgress;
+
+    // Helicopter group position (flying at 4 units height)
+    this.helicopterGroup.position.set(this.helicopterX, 4, this.helicopterZ);
+
+    // Face flight direction
+    const angle = Math.atan2(this.helicopterEz - this.helicopterSz, this.helicopterEx - this.helicopterSx);
+    this.helicopterGroup.rotation.y = -angle + Math.PI / 2;
+
+    // Gentle bobbing
+    this.helicopterGroup.position.y += Math.sin(this.helicopterFlightTime * 4) * 0.1;
+
+    // Rotor spinning
+    for (const child of this.helicopterGroup.children) {
+      if (child.userData.isRotor) {
+        child.rotation.x += dt * 30;
+      }
+    }
+
+    // Shadow
+    if (this.helicopterShadow) {
+      this.helicopterShadow.position.set(this.helicopterX, 0.05, this.helicopterZ);
+      this.helicopterShadow.visible = true;
+      // Shadow fades based on progress (stronger at start/end? No, just constant)
+      (this.helicopterShadow.material as THREE.MeshBasicMaterial).opacity = 0.15;
+    }
+
+    // Particle trail behind helicopter
+    if (this.helicopterFlightTime < 7.5) {
+      // Spawn a few trail particles behind
+      const trailMul = 0.3;
+      const tx = this.helicopterSx + (this.helicopterEx - this.helicopterSx) * (this.helicopterProgress - 0.02 * trailMul);
+      const tz = this.helicopterSz + (this.helicopterEz - this.helicopterSz) * (this.helicopterProgress - 0.02 * trailMul);
+      this.spawnParticleBurst(tx, tz, 0x888899, 1);
+      this.spawnParticleBurst(tx, tz, 0xaabbcc, 1);
+    }
+
+    // Complete
+    if (this.helicopterProgress >= 1) {
+      this.helicopterActive = false;
+      this.helicopterGroup.visible = false;
+      if (this.helicopterShadow) this.helicopterShadow.visible = false;
+    }
+  }
+
   reset(): void {
     for (const group of this.entityMeshes.values()) {
       this.scene.remove(group);
@@ -1624,6 +2046,22 @@ export class Renderer3D {
     this.lastProcessedEvents = 0;
 
     this.clearMeshes();
+
+    // Clear supply crate meshes
+    for (const m of this.supplyCrateMeshes) {
+      this.scene.remove(m);
+      if (m instanceof THREE.Mesh || m instanceof THREE.Line) {
+        m.geometry.dispose();
+        (m.material as THREE.Material).dispose();
+      }
+    }
+    this.supplyCrateMeshes = [];
+    for (const m of this.supplyCrateGlows) {
+      this.scene.remove(m);
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    this.supplyCrateGlows = [];
 
     const pos = this.particlePositions;
     for (let i = 0; i < this.particleData.length; i++) {
@@ -1643,6 +2081,36 @@ export class Renderer3D {
     }
     this.alertRings = [];
 
+    // Clear horde surges
+    for (const surge of this.hordeSurges) {
+      this.scene.remove(surge.mesh);
+      surge.mesh.geometry.dispose();
+      (surge.mesh.material as THREE.Material).dispose();
+    }
+    this.hordeSurges = [];
+
+    // Clear building fires
+    this.buildingFires = [];
+
+    // Clear helicopter
+    if (this.helicopterGroup) {
+      this.scene.remove(this.helicopterGroup);
+      this.helicopterGroup.traverse(child => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
+      this.helicopterGroup = null;
+    }
+    if (this.helicopterShadow) {
+      this.scene.remove(this.helicopterShadow);
+      this.helicopterShadow.geometry.dispose();
+      (this.helicopterShadow.material as THREE.Material).dispose();
+      this.helicopterShadow = null;
+    }
+    this.helicopterActive = false;
+
     // Clear deploy drops
     for (const drop of this.deployDrops) {
       this.scene.remove(drop.mesh);
@@ -1650,6 +2118,22 @@ export class Renderer3D {
       (drop.mesh.material as THREE.Material).dispose();
     }
     this.deployDrops = [];
+
+    // Clear supply crate meshes
+    for (const m of this.supplyCrateMeshes) {
+      this.scene.remove(m);
+      if (m instanceof THREE.Mesh || m instanceof THREE.Line) {
+        m.geometry.dispose();
+        (m.material as THREE.Material).dispose();
+      }
+    }
+    this.supplyCrateMeshes = [];
+    for (const m of this.supplyCrateGlows) {
+      this.scene.remove(m);
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    this.supplyCrateGlows = [];
   }
 
   dispose(): void {

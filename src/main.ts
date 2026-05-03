@@ -96,6 +96,80 @@ entityPopup = document.createElement('div');
 entityPopup.id = 'entity-popup';
 document.getElementById('ui-overlay')!.appendChild(entityPopup);
 
+// ─── Add dramatic popup overlay ───
+const dramaticPopup = document.createElement('div');
+dramaticPopup.id = 'dramatic-popup';
+document.getElementById('ui-overlay')!.appendChild(dramaticPopup);
+
+// Dramatic popup state
+let dramaticPopupTimeout: ReturnType<typeof setTimeout> | null = null;
+let shownDramatic = new Set<string>();
+
+function showDramaticPopup(text: string, color: string, duration: number = 3): void {
+  const popup = document.getElementById('dramatic-popup')!;
+  popup.textContent = text;
+  popup.style.color = color;
+  popup.style.textShadow = `0 0 40px ${color}66, 0 0 80px ${color}33, 2px 2px 4px rgba(0,0,0,0.8)`;
+  popup.style.animation = 'none';
+  // Force reflow
+  void popup.offsetWidth;
+  popup.style.animation = `dramaticIn ${duration}s ease-out forwards`;
+  popup.style.opacity = '1';
+
+  if (dramaticPopupTimeout) {
+    clearTimeout(dramaticPopupTimeout);
+  }
+  dramaticPopupTimeout = setTimeout(() => {
+    popup.style.opacity = '0';
+  }, duration * 1000);
+}
+
+// Dramatic popup CSS keyframes
+const dramaticStyle = document.createElement('style');
+dramaticStyle.textContent = `
+  @keyframes dramaticIn {
+    0% { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
+    15% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+    25% { transform: translate(-50%, -50%) scale(1.0); opacity: 1; }
+    70% { transform: translate(-50%, -50%) scale(1.0); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+  }
+`;
+document.head.appendChild(dramaticStyle);
+
+// Process DRAMATIC events from the simulation
+let lastDramaticEventIndex = 0;
+function processDramaticPopups(sim: Simulation): void {
+  const events = sim.state.events;
+  for (let i = lastDramaticEventIndex; i < events.length; i++) {
+    const ev = events[i];
+    if (ev.text.startsWith('DRAMATIC:')) {
+      const msg = ev.text.slice(9);
+      if (!shownDramatic.has(msg)) {
+        shownDramatic.add(msg);
+        const colors: Record<string, string> = {
+          '⭐ THE HERO HAS FALLEN': '#ffd700',
+          '👑 ALPHA ZOMBIE ELIMINATED': '#ff3333',
+        };
+        const color = colors[msg] || '#ff3333';
+        showDramaticPopup(msg, color, 3);
+      }
+    }
+  }
+  lastDramaticEventIndex = events.length;
+
+  // Also check horde thresholds directly
+  const stats = sim.state.stats;
+  const hordeThresholds = [25, 50, 100, 200, 300];
+  for (const t of hordeThresholds) {
+    const key = `horde-${t}`;
+    if (stats.zombies >= t && !shownDramatic.has(key)) {
+      shownDramatic.add(key);
+      showDramaticPopup(`💀 ${t} ZOMBIES`, '#ff3333', 3);
+    }
+  }
+}
+
 // ─── Add legend panel ───
 legendPanel = document.createElement('div');
 legendPanel.id = 'legend-panel';
@@ -106,6 +180,9 @@ legendPanel.innerHTML = `
   <div class="legend-item"><span class="legend-icon legend-mil"></span> Military (red)</div>
   <div class="legend-item"><span class="legend-icon legend-starve"></span> Starving (orange ▲)</div>
   <div class="legend-item"><span class="legend-icon legend-noammo"></span> Out of Ammo (🚫)</div>
+  <div class="legend-item"><span class="legend-icon legend-hero">⭐</span> Hero Civilian (golden star)</div>
+  <div class="legend-item"><span class="legend-icon legend-alpha">👑</span> Alpha Zombie (red crown)</div>
+  <div class="legend-item"><span class="legend-icon legend-crate">📦</span> Supply Crate (wooden box + parachute)</div>
   <div class="legend-hint">Press L to hide</div>
   <div class="legend-buildings-title">🏢 BUILDING OCCUPANCY:</div>
   <div class="legend-item"><span class="legend-block legend-occ"></span> People inside (blue dots)</div>
@@ -316,10 +393,13 @@ function gameLoop(time: number): void {
     }
   }
 
-  if (!paused) {
+    if (!paused) {
     const simDt = rawDt * effectiveSpeed;
     sim.tick(simDt);
   }
+
+  // ─── Dramatic popup messages (poll simulation events) ───
+  processDramaticPopups(sim);
 
   // ─── First infection detection & slow-mo + auto-camera ───
   const currentInfected = sim.state.stats.totalInfected;
@@ -479,6 +559,13 @@ btnReset.addEventListener('click', () => {
   prevZombieCount = 0;
   prevCivilianCount = 400;
   lastEventCount = 0;
+  lastDramaticEventIndex = 0;
+  shownDramatic.clear();
+  const dramaticEl = document.getElementById('dramatic-popup');
+  if (dramaticEl) {
+    dramaticEl.style.opacity = '0';
+    dramaticEl.style.animation = 'none';
+  }
 });
 
 btnCamera.addEventListener('click', () => {

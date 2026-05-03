@@ -2,6 +2,9 @@
 
 This file tells AI agents how to keep README.md accurate when making changes to the zombie-sim.
 
+> ⚠️ **Balance is tuned to ~50/50.** Before changing any constant, verify win rate via 20+ game sample.
+> Refactored to v5: constants at top of simulation.ts, entity factory pattern, extracted methods.
+
 ## When to Sync
 
 Update README.md whenever you change:
@@ -40,6 +43,6 @@ After any gameplay change, update these sections:
 ## Source of Truth
 
 Always read the actual code to verify values before updating docs. Key files:
-- `src/simulation.ts` — all gameplay constants and formulas
+- `src/simulation.ts` — all gameplay constants and formulas (v5 refactored)
 - `src/renderer.ts` — all visual effects
 - `src/main.ts` — UI, controls, notifications
