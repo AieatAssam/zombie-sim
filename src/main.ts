@@ -372,11 +372,18 @@ function checkMilestones(stats: { civilians: number; zombies: number; military: 
   }
 }
 
+// ─── Fixed-timestep accumulator ───
+// Prevents browser freezing by capping simulation steps per frame.
+const FIXED_DT = 1 / 60;         // 16.67ms per sim step (60 Hz)
+const MAX_SIM_STEPS = 16;         // max sim steps per animation frame (~16x max eff. speed)
+const FRAME_BUDGET_MS = 40;       // hard time budget per frame (ms)
+
 // ─── Game Loop ───
 let lastTime = 0;
 let prevZombieCount = 0;
 let prevCivilianCount = 400;
 let deathShakeCooldown = 0;
+let accumulator = 0;
 
 function gameLoop(time: number): void {
   const rawDt = Math.min((time - lastTime) / 1000, 0.05);
@@ -393,9 +400,42 @@ function gameLoop(time: number): void {
     }
   }
 
-    if (!paused) {
-    const simDt = rawDt * effectiveSpeed;
-    sim.tick(simDt);
+  // ─── Fixed-timestep simulation with frame budgeting ───
+  if (!paused) {
+    accumulator += rawDt * effectiveSpeed;
+    // Clamp to avoid spiral of death (prevents browser hang after resume)
+    accumulator = Math.min(accumulator, FIXED_DT * MAX_SIM_STEPS * 2);
+
+    const frameStart = performance.now();
+    let steps = 0;
+    let budgetThrottled = false;
+    while (accumulator >= FIXED_DT && steps < MAX_SIM_STEPS) {
+      sim.tick(FIXED_DT);
+      accumulator -= FIXED_DT;
+      steps++;
+
+      // Hard budget check: if we've spent too long on sim this frame,
+      // bail out and let the browser breathe. Remaining accumulator
+      // carries to the next frame.
+      if (performance.now() - frameStart > FRAME_BUDGET_MS) {
+        budgetThrottled = true;
+        break;
+      }
+    }
+
+    // If we hit the step cap or budget, remaining accumulator will
+    // be processed next frame — the sim is running behind realtime.
+    const simThrottled = steps >= MAX_SIM_STEPS || budgetThrottled;
+    if (simThrottled && speed > 1) {
+      speedDisplay.style.color = '#ffaa00';
+      speedDisplay.textContent = `${speed}x ⏳`;
+    } else {
+      speedDisplay.style.color = '';
+      speedDisplay.textContent = `${speed}x`;
+    }
+  } else {
+    // When paused, drain sub-frame accumulator to avoid time skip on resume
+    accumulator = 0;
   }
 
   // ─── Dramatic popup messages (poll simulation events) ───
